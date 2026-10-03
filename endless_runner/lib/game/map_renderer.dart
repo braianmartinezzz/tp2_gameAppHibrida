@@ -19,7 +19,11 @@ import 'perspective.dart';
 ///  6. **props de desierto** (cactus, rocas, arbustos, mesetas y carteles)
 ///     que pasan a izquierda y derecha en la misma coordenada de mundo que
 ///     el asfalto (sensación de carretera en movimiento),
-///  7. bruma de distancia que suaviza el horizonte.
+///  7. bruma de distancia que suaviza el horizonte,
+///  8. detalles simpáticos para el público infantil: sol sonriente con rayos,
+///     pájaros y globo aerostático de día, estrella fugaz de noche,
+///     pirámides lejanas, cordones rojo/blanco en la orilla del asfalto,
+///     cactus con carita y florcitas, matas y piedritas junto al camino.
 ///
 /// Mantiene su propio estado de animación (tiempo, profundidad de rayas,
 /// manchones y props) para que el mapa avance incluso sin obstáculos.
@@ -27,6 +31,8 @@ class MapRenderer {
   MapRenderer() {
     _props.addAll(_seedProps());
     _sortPropsFarToNear();
+    _bits.addAll(_seedBits());
+    _sortBitsFarToNear();
     // Campo de estrellas determinista: mismas estrellas en cada corrida.
     final rnd = Random(7);
     _stars.addAll(
@@ -74,11 +80,11 @@ class MapRenderer {
   static const List<int> _kindByIndex = [0, 3, 1, 4, 2, 0, 3];
 
   /// Ancho del rectángulo base por tipo (sobre el ancho del corredor).
-  static const List<double> _kindWidthFrac = [0.16, 0.34, 0.30, 0.46, 0.20];
+  static const List<double> _kindWidthFrac = [0.22, 0.34, 0.30, 0.46, 0.24];
 
   /// Alto por tipo (sobre la altura de la pantalla): la meseta manda y el
   /// arbusto se queda bajo.
-  static const List<double> _kindHeightFrac = [0.92, 0.40, 0.32, 1.12, 0.86];
+  static const List<double> _kindHeightFrac = [0.60, 0.40, 0.32, 1.0, 0.70];
 
   /// Separación extra desde el hueco mínimo por tipo: el cartel pega a la
   /// ruta y la meseta se queda más atrás.
@@ -124,6 +130,49 @@ class MapRenderer {
   void _sortPropsFarToNear() {
     // z grande = lejos → se dibuja primero para que los cercanos queden encima.
     _props.sort((a, b) => b.z.compareTo(a.z));
+  }
+
+  // --- Detalles de suelo (matas, piedritas, flores, cactus bebé) -----------
+  /// Cantidad de detalles por lado. Son chicos y quedan más lejos de la ruta
+  /// que los props grandes; comparten su ley de movimiento y su reciclaje.
+  static const int _bitCount = 9;
+  static const int _bitKinds = 4;
+
+  /// Separación lateral de cada detalle (misma unidad que `lateralFrac`).
+  static const List<double> _bitLateral = [
+    1.5, 3.2, 2.1, 4.6, 1.0, 3.6, 5.2, 2.6, 4.0,
+  ];
+  static const List<double> _bitWidthFrac = [0.07, 0.10, 0.05, 0.07];
+  static const List<double> _bitHeightFrac = [0.05, 0.03, 0.065, 0.075];
+
+  /// Detalles vivos, de lejos a cerca. Reusan [SideProp] (misma proyección y
+  /// mismo hueco mínimo con el asfalto) pero no se exponen como `props`.
+  final List<SideProp> _bits = [];
+
+  List<SideProp> _seedBits() {
+    final list = <SideProp>[];
+    for (final side in const [-1, 1]) {
+      for (var i = 0; i < _bitCount; i++) {
+        final k = i + (side > 0 ? 0.5 : 0.0) + 0.3;
+        final kind = (i * 3 + (side > 0 ? 1 : 0)) % _bitKinds;
+        list.add(
+          SideProp(
+            side: side,
+            z: _propZMin + k * (_propSpan / _bitCount),
+            widthFrac: _bitWidthFrac[kind],
+            heightFrac: _bitHeightFrac[kind],
+            lateralFrac: _bitLateral[(i + (side > 0 ? 4 : 0)) % _bitCount],
+            // `style % _bitKinds` es el tipo de detalle.
+            style: i * _bitKinds + kind,
+          ),
+        );
+      }
+    }
+    return list;
+  }
+
+  void _sortBitsFarToNear() {
+    _bits.sort((a, b) => b.z.compareTo(a.z));
   }
 
   // --- Rayas de velocidad ----------------------------------------------------
@@ -200,6 +249,18 @@ class MapRenderer {
     }
     if (reordered) _sortPropsFarToNear();
 
+    // Los detalles de suelo corren igual que los props.
+    var bitsReordered = false;
+    for (final bit in _bits) {
+      var z = bit.z - dz;
+      while (z < _propZMin) {
+        z += _propSpan;
+      }
+      if (z > bit.z) bitsReordered = true;
+      bit.z = z;
+    }
+    if (bitsReordered) _sortBitsFarToNear();
+
     // El punteado de las divisorias corre en z con la misma velocidad.
     _dashPhase = _wrap(_dashPhase - dz, _dashPeriod);
   }
@@ -239,29 +300,47 @@ class MapRenderer {
 
     // 2) Estrellas (solo de noche) --------------------------------------------
     if (c.night) {
-      for (final star in _stars) {
+      for (var i = 0; i < _stars.length; i++) {
+        final star = _stars[i];
         final tw = 0.4 + 0.4 * sin(_time * 2.2 + star.dx * 47);
+        final pos = Offset(star.dx * w, star.dy * vy);
         canvas.drawCircle(
-          Offset(star.dx * w, star.dy * vy),
+          pos,
           1.0 + star.dy * 0.6,
           Paint()..color = c.star.withValues(alpha: tw),
         );
+        // Una de cada nueve brilla con destello en cruz.
+        if (i % 9 == 0) {
+          final spark = Paint()
+            ..color = c.star.withValues(alpha: tw)
+            ..strokeWidth = 1.2
+            ..strokeCap = StrokeCap.round;
+          final len = 3.5 + 2.5 * tw;
+          canvas.drawLine(pos.translate(-len, 0), pos.translate(len, 0), spark);
+          canvas.drawLine(pos.translate(0, -len), pos.translate(0, len), spark);
+        }
       }
+      _drawShootingStar(canvas, w: w, vy: vy);
     }
 
     // 3) Luna o sol, con su halo ------------------------------------------------
     _drawCelestialBody(canvas, w: w, vy: vy, c: c);
 
-    // 4) Nubes ----------------------------------------------------------------
-    _drawClouds(
+    // 4) Nubes, pájaros y globo -------------------------------------------------
+    _drawClouds(canvas, w: w, baseY: vy, c: c, sway: sway);
+    if (!c.night) {
+      _drawBirds(canvas, w: w, vy: vy, sway: sway);
+      _drawBalloon(canvas, w: w, vy: vy, sway: sway);
+    }
+
+    // 5) Capas de parallax: pirámides, mesetas, dunas medias y cercanas --------
+    _drawPyramids(
       canvas,
       w: w,
       baseY: vy,
-      paint: Paint()..color = c.cloud,
-      sway: sway,
+      offset: _time * 2 + sway * 0.03,
+      c: c,
     );
-
-    // 5) Capas de parallax: mesetas lejanas, dunas cercanas ---------------------
     _drawMesas(
       canvas,
       w: w,
@@ -275,6 +354,16 @@ class MapRenderer {
         ..color = c.ridgeLit.withValues(alpha: 0.75)
         ..strokeWidth = 2
         ..strokeCap = StrokeCap.round,
+    );
+    _drawBumps(
+      canvas,
+      w: w,
+      baseY: vy,
+      period: 210,
+      offset: _time * 6 + sway * 0.06 + 40,
+      heights: const [0.5, 0.9, 0.6, 1.0, 0.4],
+      maxHeight: vy * 0.24,
+      paint: Paint()..color = Color.lerp(c.ridgeFar, c.duneNear, 0.55)!,
     );
     _drawBumps(
       canvas,
@@ -316,6 +405,9 @@ class MapRenderer {
         ),
     );
 
+    // Rachas de viento sobre la arena (van por debajo de la ruta).
+    _drawWindStreaks(canvas, p, c);
+
     // 7) Hombro de grava + asfalto ----------------------------------------------
     final extra = p.baseWidth * roadExtraFrac;
     final shoulderW = p.baseWidth * shoulderFrac;
@@ -341,6 +433,9 @@ class MapRenderer {
           [c.roadFar, c.roadNear],
         ),
     );
+
+    // Cordones rojo/blanco sobre el hombro: pura carretera de dibujito.
+    _drawKerbs(canvas, p, c);
 
     // 8) Marcas viales (recortadas al asfalto) -----------------------------------
     canvas.save();
@@ -418,7 +513,7 @@ class MapRenderer {
   }) {
     final cx = c.night ? w * 0.24 : w * 0.76;
     final cy = vy * (c.night ? 0.44 : 0.54);
-    final r = c.night ? 15.0 : 28.0;
+    final r = c.night ? 15.0 : 26.0;
     // Halo: de noche tibio pero apagado, de día potente.
     canvas.drawCircle(
       Offset(cx, cy),
@@ -433,7 +528,27 @@ class MapRenderer {
           ],
         ),
     );
+
+    if (!c.night) {
+      // Rayos que giran despacito alrededor del sol.
+      final ray = Paint()
+        ..color = c.bodyGlow.withValues(alpha: 0.7)
+        ..strokeWidth = 3.2
+        ..strokeCap = StrokeCap.round;
+      for (var i = 0; i < 12; i++) {
+        final a = i * pi / 6 + _time * 0.18;
+        final r0 = r * 1.28;
+        final r1 = r * (i.isEven ? 1.85 : 1.58);
+        canvas.drawLine(
+          Offset(cx + cos(a) * r0, cy + sin(a) * r0),
+          Offset(cx + cos(a) * r1, cy + sin(a) * r1),
+          ray,
+        );
+      }
+    }
+
     canvas.drawCircle(Offset(cx, cy), r, Paint()..color = c.body);
+
     if (c.night) {
       // Dos cráteres para que se lea luna y no sol apagado.
       canvas.drawCircle(
@@ -446,42 +561,272 @@ class MapRenderer {
         r * 0.15,
         Paint()..color = c.bodyShade,
       );
+    } else {
+      // Carita feliz: ojos, sonrisa y cachetes.
+      const ink = Color(0xFF8A4B14);
+      final dot = Paint()..color = ink;
+      canvas.drawCircle(Offset(cx - r * 0.34, cy - r * 0.08), r * 0.09, dot);
+      canvas.drawCircle(Offset(cx + r * 0.34, cy - r * 0.08), r * 0.09, dot);
+      canvas.drawArc(
+        Rect.fromCenter(
+          center: Offset(cx, cy + r * 0.12),
+          width: r * 0.62,
+          height: r * 0.46,
+        ),
+        0.25,
+        pi - 0.5,
+        false,
+        Paint()
+          ..color = ink
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..strokeCap = StrokeCap.round,
+      );
+      final cheek = Paint()
+        ..color = const Color(0xFFFF8F8F).withValues(alpha: 0.55);
+      canvas.drawCircle(Offset(cx - r * 0.52, cy + r * 0.2), r * 0.14, cheek);
+      canvas.drawCircle(Offset(cx + r * 0.52, cy + r * 0.2), r * 0.14, cheek);
     }
   }
 
+  /// Estrella fugaz de noche: cruza el cielo cada ~7 s en menos de un segundo.
+  void _drawShootingStar(Canvas canvas, {required double w, required double vy}) {
+    const period = 7.0;
+    const duration = 0.9;
+    final local = _time % period;
+    if (local > duration) return;
+    final u = local / duration;
+    final fade = sin(u * pi);
+    final head = Offset(w * (0.88 - 0.42 * u), vy * (0.08 + 0.5 * u));
+    final tail = Offset(head.dx + w * 0.16, head.dy - vy * 0.16);
+    canvas.drawLine(
+      tail,
+      head,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          tail,
+          head,
+          [
+            const Color(0x00FFFFFF),
+            const Color(0xFFFFFFFF).withValues(alpha: 0.9 * fade),
+          ],
+        )
+        ..strokeWidth = 2.4
+        ..strokeCap = StrokeCap.round,
+    );
+    canvas.drawCircle(
+      head,
+      2.2,
+      Paint()..color = const Color(0xFFFFFFFF).withValues(alpha: fade),
+    );
+  }
+
+  /// Nubes esponjosas: varios óvalos en UN solo path (no se oscurecen donde
+  /// se superponen, aunque el color sea translúcido) más una sombrita abajo.
   void _drawClouds(
     Canvas canvas, {
     required double w,
     required double baseY,
-    required Paint paint,
+    required _Palette c,
     required double sway,
   }) {
     final span = w + 240;
+    final fill = Paint()..color = c.cloud;
+    final shade = Paint()..color = c.cloudShade;
     for (final cloud in _clouds) {
       final raw = cloud.x0 + _time * cloud.speed + sway * 0.03;
       final x = ((raw % span) + span) % span - 120;
       final y = cloud.yFrac * baseY;
       final s = cloud.scale;
-      canvas.drawOval(
-        Rect.fromCenter(center: Offset(x, y), width: 64 * s, height: 18 * s),
-        paint,
-      );
-      canvas.drawOval(
-        Rect.fromCenter(
-          center: Offset(x - 20 * s, y + 5 * s),
-          width: 40 * s,
-          height: 14 * s,
-        ),
-        paint,
-      );
-      canvas.drawOval(
-        Rect.fromCenter(
-          center: Offset(x + 22 * s, y + 4 * s),
-          width: 44 * s,
-          height: 15 * s,
-        ),
-        paint,
-      );
+      final path = Path()
+        ..addOval(Rect.fromCenter(
+            center: Offset(x, y), width: 64 * s, height: 22 * s))
+        ..addOval(Rect.fromCenter(
+            center: Offset(x - 22 * s, y + 4 * s), width: 40 * s, height: 18 * s))
+        ..addOval(Rect.fromCenter(
+            center: Offset(x + 24 * s, y + 3 * s), width: 44 * s, height: 19 * s))
+        ..addOval(Rect.fromCenter(
+            center: Offset(x - 6 * s, y - 8 * s), width: 34 * s, height: 22 * s))
+        ..addOval(Rect.fromCenter(
+            center: Offset(x + 12 * s, y - 5 * s), width: 28 * s, height: 18 * s));
+      canvas.drawPath(path.shift(Offset(0, 3 * s)), shade);
+      canvas.drawPath(path, fill);
+    }
+  }
+
+  /// Tres pajaritos aleteando en "V" (solo de día).
+  void _drawBirds(
+    Canvas canvas, {
+    required double w,
+    required double vy,
+    required double sway,
+  }) {
+    final paint = Paint()
+      ..color = const Color(0xFF3B3355).withValues(alpha: 0.7)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.8
+      ..strokeCap = StrokeCap.round;
+    final span = w + 160;
+    for (final (x0, yf, speed, phase, s) in const [
+      (0.0, 0.30, 30.0, 0.0, 1.0),
+      (60.0, 0.36, 34.0, 1.3, 0.8),
+      (30.0, 0.22, 28.0, 2.1, 0.9),
+    ]) {
+      final x = ((x0 + _time * speed + sway * 0.02) % span + span) % span - 80;
+      final y = yf * vy + sin(_time * 1.6 + phase) * 3;
+      final flap = sin(_time * 9 + phase) * 3.2 * s;
+      final path = Path()
+        ..moveTo(x - 7 * s, y - flap)
+        ..quadraticBezierTo(x - 3.5 * s, y - 3 * s + flap * 0.3, x, y)
+        ..quadraticBezierTo(x + 3.5 * s, y - 3 * s + flap * 0.3, x + 7 * s, y - flap);
+      canvas.drawPath(path, paint);
+    }
+  }
+
+  /// Globo aerostático que cruza el cielo de derecha a izquierda (de día).
+  void _drawBalloon(
+    Canvas canvas, {
+    required double w,
+    required double vy,
+    required double sway,
+  }) {
+    final u = (_time * 0.018 + 0.15) % 1.0;
+    final cx = w * (1.12 - u * 1.3) + sway * 0.02;
+    final cy = vy * 0.46 + sin(_time * 0.9) * 3.5;
+    const r = 15.0;
+
+    final rope = Paint()
+      ..color = const Color(0xFF5A4630).withValues(alpha: 0.8)
+      ..strokeWidth = 1;
+    canvas.drawLine(
+        Offset(cx - 6, cy + r * 0.85), Offset(cx - 4, cy + r + 8), rope);
+    canvas.drawLine(
+        Offset(cx + 6, cy + r * 0.85), Offset(cx + 4, cy + r + 8), rope);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(center: Offset(cx, cy + r + 11), width: 10, height: 7),
+        const Radius.circular(2),
+      ),
+      Paint()..color = const Color(0xFF8A5A2B),
+    );
+
+    final envelope = Path()
+      ..addOval(Rect.fromCenter(
+          center: Offset(cx, cy), width: r * 2, height: r * 2.3));
+    canvas.save();
+    canvas.clipPath(envelope);
+    canvas.drawRect(envelope.getBounds(), Paint()..color = const Color(0xFFFF6B8A));
+    canvas.drawRect(
+      Rect.fromCenter(center: Offset(cx, cy), width: r * 0.7, height: r * 2.4),
+      Paint()..color = const Color(0xFFFFD166),
+    );
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(cx - r * 0.35, cy - r * 0.45),
+        width: r * 0.55,
+        height: r * 0.9,
+      ),
+      Paint()..color = const Color(0xFFFFFFFF).withValues(alpha: 0.28),
+    );
+    canvas.restore();
+  }
+
+  /// Pirámides lejanas en el horizonte: media cara iluminada, media en sombra.
+  void _drawPyramids(
+    Canvas canvas, {
+    required double w,
+    required double baseY,
+    required double offset,
+    required _Palette c,
+  }) {
+    const period = 520.0;
+    final first = (offset / period).floor() - 1;
+    final slots = (w / period).ceil() + 3;
+    final lit = Paint()..color = c.pyrLit;
+    final shade = Paint()..color = c.pyrShade;
+    for (var i = 0; i < slots; i++) {
+      final x = (first + i) * period - offset;
+      for (final (dx, half, hf) in const [
+        (120.0, 46.0, 0.42),
+        (196.0, 28.0, 0.24),
+      ]) {
+        final cx = x + dx;
+        final top = baseY - baseY * hf;
+        canvas.drawPath(
+          Path()
+            ..moveTo(cx - half, baseY)
+            ..lineTo(cx, top)
+            ..lineTo(cx, baseY)
+            ..close(),
+          lit,
+        );
+        canvas.drawPath(
+          Path()
+            ..moveTo(cx, top)
+            ..lineTo(cx + half, baseY)
+            ..lineTo(cx, baseY)
+            ..close(),
+          shade,
+        );
+      }
+    }
+  }
+
+  /// Rachas de viento: rayitas que cruzan la arena. Son decorado (se apagan
+  /// con [drawProps]) y van por debajo del hombro y del asfalto, así que
+  /// nunca se ven sobre la ruta.
+  void _drawWindStreaks(Canvas canvas, Perspective p, _Palette c) {
+    if (!drawProps) return;
+    final span = p.width + 240;
+    final paint = Paint()..strokeCap = StrokeCap.round;
+    for (final (x0, f, speed) in const [
+      (20.0, 0.18, 70.0),
+      (210.0, 0.35, 95.0),
+      (380.0, 0.55, 120.0),
+      (120.0, 0.72, 150.0),
+      (300.0, 0.90, 180.0),
+    ]) {
+      final y = p.vanishY + (p.height - p.vanishY) * f;
+      final x = ((x0 + _time * speed) % span) - 120;
+      final len = 30 + 70 * f;
+      paint
+        ..strokeWidth = 1 + 2 * f
+        ..color = c.stripe.withValues(alpha: c.night ? 0.16 : 0.30);
+      canvas.drawLine(Offset(x, y), Offset(x + len, y - len * 0.02), paint);
+    }
+  }
+
+  /// Cordones rojo/blanco sobre el hombro de grava, pegados al asfalto. El
+  /// patrón corre con la misma fase que las divisorias (período par), así que
+  /// se mueve a la velocidad exacta del juego.
+  void _drawKerbs(Canvas canvas, Perspective p, _Palette c) {
+    const seg = _dashPeriod / 2;
+    const zMax = 6.0;
+    final laneIn = 1 + 2 * roadExtraFrac;
+    final laneOut = laneIn + 2 * shoulderFrac * 0.55;
+    final half = p.baseWidth * 0.5;
+    final paint = Paint();
+    for (final side in const [-1.0, 1.0]) {
+      for (var k = -1;; k++) {
+        final zNear = _dashZMin + _dashPhase + k * seg;
+        if (zNear > zMax) break;
+        final zFar = zNear + seg;
+        if (zFar <= _dashZMin) continue;
+        final tN = (1.0 / max(zNear, _dashZMin)).clamp(0.0, 1.0);
+        final tF = (1.0 / min(zFar, zMax)).clamp(0.0, 1.0);
+        final yN = p.yAtT(tN);
+        final yF = p.yAtT(tF);
+        paint.color = k.isEven ? c.kerbA : c.kerbB;
+        canvas.drawPath(
+          Path()
+            ..moveTo(p.vanishX + side * half * laneIn * tN, yN)
+            ..lineTo(p.vanishX + side * half * laneOut * tN, yN)
+            ..lineTo(p.vanishX + side * half * laneOut * tF, yF)
+            ..lineTo(p.vanishX + side * half * laneIn * tF, yF)
+            ..close(),
+          paint,
+        );
+      }
     }
   }
 
@@ -559,14 +904,25 @@ class MapRenderer {
     required double sway,
   }) {
     if (!drawProps) return;
-    // `_props` viene ordenado de lejos a cerca (mayor z primero).
-    for (final prop in _props) {
-      final alpha = _propAlpha(prop.z);
+    // `_props` y `_bits` vienen ordenados de lejos a cerca (mayor z primero):
+    // se mezclan como en un merge para que un detalle cercano nunca quede
+    // tapado por un prop lejano.
+    var i = 0;
+    var j = 0;
+    while (i < _props.length || j < _bits.length) {
+      final takeProp =
+          j >= _bits.length || (i < _props.length && _props[i].z >= _bits[j].z);
+      final item = takeProp ? _props[i++] : _bits[j++];
+      final alpha = _propAlpha(item.z);
       if (alpha <= 0) continue;
-      final body = prop.rect(p, sway: sway);
+      final body = item.rect(p, sway: sway);
       if (body.width < 1 || body.height < 1) continue;
       if (body.right < 0 || body.left > p.width) continue; // fuera de pantalla
-      _drawProp(canvas, prop, body, alpha, c);
+      if (takeProp) {
+        _drawProp(canvas, item, body, alpha, c);
+      } else {
+        _drawBit(canvas, item, body, alpha, c);
+      }
     }
   }
 
@@ -626,7 +982,7 @@ class MapRenderer {
 
     switch (kind) {
       case 0:
-        _drawCactus(canvas, body, bodyPaint);
+        _drawCactus(canvas, body, bodyPaint, alpha, c);
       case 1:
         _drawRock(canvas, body, bodyPaint, accent, alpha);
       case 2:
@@ -638,12 +994,45 @@ class MapRenderer {
     }
   }
 
-  /// Cactus saguaro: tronco redondeado con brazos que suben a los costados.
-  /// Toda la figura vive dentro del rectángulo, ya garantizado fuera de la
-  /// ruta.
-  void _drawCactus(Canvas canvas, Rect body, Paint paint) {
+  /// Flor de cinco pétalos: la usan el cactus, las flores y el cactus bebé.
+  void _drawFlower(
+    Canvas canvas,
+    Offset center,
+    double petal,
+    double alpha,
+    _Palette c,
+  ) {
+    final petalColor = c.night
+        ? Color.lerp(const Color(0xFFFF7EB6), c.propNight, 0.35)!
+        : const Color(0xFFFF7EB6);
+    final paint = Paint()..color = petalColor.withValues(alpha: alpha);
+    for (var a = 0; a < 5; a++) {
+      final ang = a * 2 * pi / 5 - pi / 2;
+      canvas.drawCircle(
+        center + Offset(cos(ang), sin(ang)) * (petal * 0.9),
+        petal,
+        paint,
+      );
+    }
+    canvas.drawCircle(
+      center,
+      petal * 0.7,
+      Paint()..color = const Color(0xFFFFD84D).withValues(alpha: alpha),
+    );
+  }
+
+  /// Cactus saguaro simpático: tronco con brazos, una florcita rosa arriba y,
+  /// cuando está cerca, carita sonriente con cachetes. Toda la figura vive
+  /// dentro del rectángulo, ya garantizado fuera de la ruta.
+  void _drawCactus(
+    Canvas canvas,
+    Rect body,
+    Paint paint,
+    double alpha,
+    _Palette c,
+  ) {
     final cx = body.center.dx;
-    final trunkW = max(3.0, body.width * 0.40);
+    final trunkW = max(3.0, body.width * 0.46);
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromLTWH(cx - trunkW * 0.5, body.top, trunkW, body.height),
@@ -652,47 +1041,116 @@ class MapRenderer {
       paint,
     );
 
-    if (body.height < 24) return;
-    final armLen = min(body.width * 0.30, (body.width - trunkW) * 0.5);
-    if (armLen < 2) return;
-    final armThick = max(2.0, trunkW * 0.7);
-    final armY = body.top + body.height * 0.5;
-    final armH = body.height * 0.3;
-    for (final dir in const [-1.0, 1.0]) {
-      final inner = cx + dir * trunkW * 0.5;
-      final outer = inner + dir * armLen;
-      final x0 = min(inner, outer);
-      final x1 = max(inner, outer);
-      // Tramo horizontal: del tronco hacia afuera.
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTRB(
-            x0,
-            armY - armThick * 0.5,
-            x1,
-            armY + armThick * 0.5,
-          ),
-          Radius.circular(armThick * 0.5),
-        ),
-        paint,
+    if (body.height >= 24) {
+      final armLen = min(body.width * 0.30, (body.width - trunkW) * 0.5);
+      if (armLen >= 2) {
+        final armThick = max(2.0, trunkW * 0.7);
+        final armY = body.top + body.height * 0.5;
+        final armH = body.height * 0.3;
+        for (final dir in const [-1.0, 1.0]) {
+          final inner = cx + dir * trunkW * 0.5;
+          final outer = inner + dir * armLen;
+          final x0 = min(inner, outer);
+          final x1 = max(inner, outer);
+          // Tramo horizontal: del tronco hacia afuera.
+          canvas.drawRRect(
+            RRect.fromRectAndRadius(
+              Rect.fromLTRB(
+                x0,
+                armY - armThick * 0.5,
+                x1,
+                armY + armThick * 0.5,
+              ),
+              Radius.circular(armThick * 0.5),
+            ),
+            paint,
+          );
+          // Tramo vertical apoyado contra la punta (así no se pasa del rect).
+          canvas.drawRRect(
+            RRect.fromRectAndRadius(
+              Rect.fromLTWH(
+                dir > 0 ? x1 - armThick : x0,
+                armY - armH,
+                armThick,
+                armH,
+              ),
+              Radius.circular(armThick * 0.5),
+            ),
+            paint,
+          );
+        }
+      }
+    }
+
+    // Costilla clara a lo largo del tronco: da volumen.
+    if (trunkW >= 6) {
+      canvas.drawLine(
+        Offset(cx - trunkW * 0.18, body.top + trunkW * 1.0),
+        Offset(cx - trunkW * 0.18, body.bottom - trunkW * 0.2),
+        Paint()
+          ..color = const Color(0xFFFFFFFF).withValues(alpha: 0.16 * alpha)
+          ..strokeWidth = max(1.0, trunkW * 0.09)
+          ..strokeCap = StrokeCap.round,
       );
-      // Tramo vertical apoyado contra la punta (así no se pasa del rect).
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(
-            dir > 0 ? x1 - armThick : x0,
-            armY - armH,
-            armThick,
-            armH,
-          ),
-          Radius.circular(armThick * 0.5),
+    }
+
+    // Florcita en la punta.
+    if (trunkW >= 6) {
+      final pr = max(1.5, trunkW * 0.20);
+      _drawFlower(canvas, Offset(cx, body.top + pr * 1.9), pr, alpha, c);
+    }
+
+    // Carita: ojos con brillo, sonrisa y cachetes.
+    if (trunkW >= 9 && body.height >= 40) {
+      final y0 = body.top + trunkW * 1.5;
+      final eyeR = trunkW * 0.16;
+      final eyeDx = trunkW * 0.2;
+      final white = Paint()
+        ..color = const Color(0xFFFFFFFF).withValues(alpha: alpha);
+      final ink = const Color(0xFF1B2233).withValues(alpha: alpha);
+      for (final dir in const [-1.0, 1.0]) {
+        final eye = Offset(cx + dir * eyeDx, y0);
+        canvas.drawCircle(eye, eyeR, white);
+        canvas.drawCircle(
+          eye + Offset(0, eyeR * 0.15),
+          eyeR * 0.55,
+          Paint()..color = ink,
+        );
+        canvas.drawCircle(
+          eye + Offset(-eyeR * 0.15, -eyeR * 0.1),
+          eyeR * 0.18,
+          white,
+        );
+      }
+      canvas.drawArc(
+        Rect.fromCenter(
+          center: Offset(cx, y0 + eyeR * 2.6),
+          width: trunkW * 0.36,
+          height: trunkW * 0.26,
         ),
-        paint,
+        0.15,
+        pi - 0.3,
+        false,
+        Paint()
+          ..color = ink
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = max(1.0, trunkW * 0.06)
+          ..strokeCap = StrokeCap.round,
       );
+      final cheek = Paint()
+        ..color = const Color(0xFFFF8FA3).withValues(alpha: 0.55 * alpha);
+      for (final dir in const [-1.0, 1.0]) {
+        canvas.drawCircle(
+          Offset(cx + dir * trunkW * 0.30, y0 + eyeR * 2.0),
+          eyeR * 0.7,
+          cheek,
+        );
+      }
     }
   }
 
-  /// Roca: polígono irregular apoyado en el suelo con una costilla clara.
+  /// Roca: polígono irregular apoyado en el suelo con una cara iluminada,
+  /// una costilla clara y una grieta.
   void _drawRock(
     Canvas canvas,
     Rect body,
@@ -713,6 +1171,18 @@ class MapRenderer {
       ..lineTo(l + wd, body.bottom)
       ..close();
     canvas.drawPath(path, paint);
+
+    // Cara iluminada (luz desde arriba a la izquierda).
+    canvas.drawPath(
+      Path()
+        ..moveTo(l + wd * 0.08, t + ht * 0.45)
+        ..lineTo(l + wd * 0.30, t + ht * 0.06)
+        ..lineTo(l + wd * 0.60, t)
+        ..lineTo(l + wd * 0.50, t + ht * 0.5)
+        ..close(),
+      Paint()..color = const Color(0xFFFFFFFF).withValues(alpha: 0.18 * alpha),
+    );
+
     canvas.drawLine(
       Offset(l + wd * 0.30, t + ht * 0.06),
       Offset(l + wd * 0.60, t),
@@ -721,9 +1191,25 @@ class MapRenderer {
         ..strokeWidth = max(1.0, wd * 0.05)
         ..strokeCap = StrokeCap.round,
     );
+
+    // Grieta en zigzag.
+    canvas.drawPath(
+      Path()
+        ..moveTo(l + wd * 0.64, t + ht * 0.30)
+        ..lineTo(l + wd * 0.58, t + ht * 0.50)
+        ..lineTo(l + wd * 0.66, t + ht * 0.62)
+        ..lineTo(l + wd * 0.60, t + ht * 0.82),
+      Paint()
+        ..color = accent.color.withValues(alpha: 0.5 * alpha)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = max(1.0, wd * 0.025)
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round,
+    );
   }
 
-  /// Arbusto seco: tres bolitas de follaje y unas varillas que asoman.
+  /// Arbusto seco: tres bolitas de follaje, unas varillas que asoman y
+  /// frutitos rojos.
   void _drawBush(
     Canvas canvas,
     Rect body,
@@ -757,9 +1243,19 @@ class MapRenderer {
         twig,
       );
     }
+    final berry = Paint()
+      ..color = const Color(0xFFE24B4A).withValues(alpha: alpha);
+    for (final (dx, dy) in const [(-0.22, 0.30), (0.12, 0.42), (0.26, 0.22)]) {
+      canvas.drawCircle(
+        Offset(cx + dx * w, body.bottom - dy * hUp),
+        max(1.0, w * 0.045),
+        berry,
+      );
+    }
   }
 
-  /// Meseta: talud ancho, paredes cortadas y plancha plana con estratos.
+  /// Meseta: talud ancho, paredes cortadas y plancha plana con franjas de
+  /// colores (estratos) y un borde superior iluminado.
   void _drawMesa(
     Canvas canvas,
     Rect body,
@@ -768,33 +1264,55 @@ class MapRenderer {
     double alpha,
   ) {
     final w = body.width;
+    final h = body.height;
     final path = Path()
       ..moveTo(body.left, body.bottom)
-      ..lineTo(body.left + w * 0.20, body.top + body.height * 0.28)
+      ..lineTo(body.left + w * 0.20, body.top + h * 0.28)
       ..lineTo(body.left + w * 0.28, body.top)
       ..lineTo(body.right - w * 0.22, body.top)
-      ..lineTo(body.right - w * 0.14, body.top + body.height * 0.34)
+      ..lineTo(body.right - w * 0.14, body.top + h * 0.34)
       ..lineTo(body.right, body.bottom)
       ..close();
     canvas.drawPath(path, paint);
 
-    // Estratos: tres líneas recortadas a la silueta.
+    // Franjas claras y oscuras alternadas, recortadas a la silueta.
     canvas.save();
     canvas.clipPath(path);
-    final strata = accent
-      ..color = accent.color.withValues(alpha: 0.35 * alpha)
-      ..strokeWidth = max(1.0, w * 0.045);
-    for (final f in const [0.45, 0.62, 0.80]) {
-      canvas.drawLine(
-        Offset(body.left, body.top + body.height * f),
-        Offset(body.right, body.top + body.height * f),
-        strata,
+    final light = Paint()
+      ..color = const Color(0xFFFFFFFF).withValues(alpha: 0.14 * alpha);
+    final dark = Paint()
+      ..color = accent.color.withValues(alpha: 0.30 * alpha);
+    for (final (f0, f1, isLight) in const [
+      (0.30, 0.40, true),
+      (0.46, 0.58, false),
+      (0.64, 0.72, true),
+      (0.78, 0.90, false),
+    ]) {
+      canvas.drawRect(
+        Rect.fromLTRB(
+          body.left,
+          body.top + h * f0,
+          body.right,
+          body.top + h * f1,
+        ),
+        isLight ? light : dark,
       );
     }
     canvas.restore();
+
+    // Labio superior iluminado.
+    canvas.drawLine(
+      Offset(body.left + w * 0.28, body.top),
+      Offset(body.right - w * 0.22, body.top),
+      Paint()
+        ..color = const Color(0xFFFFFFFF).withValues(alpha: 0.35 * alpha)
+        ..strokeWidth = max(1.0, w * 0.02)
+        ..strokeCap = StrokeCap.round,
+    );
   }
 
-  /// Cartel de ruta: poste, panel redondeado y dos barras que simulan texto.
+  /// Cartel de ruta: poste, panel con borde rojo y, cuando está cerca, un
+  /// iconito de cactus (si no, dos barras que simulan texto).
   void _drawSign(
     Canvas canvas,
     Rect body,
@@ -814,38 +1332,182 @@ class MapRenderer {
     );
 
     final radius = Radius.circular(max(2.0, w * 0.10));
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(body.left, body.top, w, panelH),
-        radius,
-      ),
-      paint,
+    final panel = RRect.fromRectAndRadius(
+      Rect.fromLTWH(body.left, body.top, w, panelH),
+      radius,
     );
+    canvas.drawRRect(panel, paint);
+    canvas.drawRRect(
+      panel.deflate(max(1.0, w * 0.04)),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = max(1.0, w * 0.035)
+        ..color = const Color(0xFFD9534F).withValues(alpha: 0.9 * alpha),
+    );
+
     final bar = accent..color = accent.color.withValues(alpha: alpha * 0.85);
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromLTWH(
           body.left + w * 0.16,
-          body.top + panelH * 0.28,
+          body.top + panelH * 0.22,
           w * 0.68,
-          panelH * 0.16,
-        ),
-        Radius.circular(panelH * 0.08),
-      ),
-      bar,
-    );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(
-          body.left + w * 0.24,
-          body.top + panelH * 0.58,
-          w * 0.52,
           panelH * 0.14,
         ),
         Radius.circular(panelH * 0.07),
       ),
       bar,
     );
+
+    if (w >= 14) {
+      // Iconito de cactus verde.
+      final green = Paint()
+        ..color = const Color(0xFF4E8C5A).withValues(alpha: alpha);
+      final icoW = max(2.0, w * 0.12);
+      final icoTop = body.top + panelH * 0.46;
+      final icoH = panelH * 0.42;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(cx - icoW * 0.5, icoTop, icoW, icoH),
+          Radius.circular(icoW * 0.5),
+        ),
+        green,
+      );
+      for (final dir in const [-1.0, 1.0]) {
+        final armW = icoW * 0.9;
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(
+              dir > 0 ? cx + icoW * 0.5 - 0.5 : cx - icoW * 0.5 - armW + 0.5,
+              icoTop + icoH * 0.35,
+              armW,
+              icoW * 0.7,
+            ),
+            Radius.circular(icoW * 0.35),
+          ),
+          green,
+        );
+      }
+    } else {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(
+            body.left + w * 0.24,
+            body.top + panelH * 0.58,
+            w * 0.52,
+            panelH * 0.14,
+          ),
+          Radius.circular(panelH * 0.07),
+        ),
+        bar,
+      );
+    }
+  }
+
+  /// Detalles de suelo: mata de pasto, piedritas, florcita y cactus bebé.
+  void _drawBit(
+    Canvas canvas,
+    SideProp bit,
+    Rect body,
+    double alpha,
+    _Palette c,
+  ) {
+    final kind = bit.style % _bitKinds;
+    Color tint(Color base) =>
+        c.night ? Color.lerp(base, c.propNight, 0.45)! : base;
+    final w = body.width;
+    final cx = body.center.dx;
+    final bottom = body.bottom;
+
+    // Sombrita de apoyo.
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(cx, bottom),
+        width: w * 0.9,
+        height: max(2.0, w * 0.2),
+      ),
+      Paint()..color = const Color(0xFF000000).withValues(alpha: 0.16 * alpha),
+    );
+
+    switch (kind) {
+      case 0: // mata de pasto seco
+        final blade = Paint()
+          ..color = tint(const Color(0xFF9DB84F)).withValues(alpha: alpha)
+          ..strokeWidth = max(1.0, w * 0.09)
+          ..strokeCap = StrokeCap.round;
+        for (final (dx, lean, hf) in const [
+          (-0.30, -0.22, 0.70),
+          (-0.15, -0.08, 1.00),
+          (0.00, 0.00, 0.85),
+          (0.15, 0.10, 1.00),
+          (0.30, 0.24, 0.70),
+        ]) {
+          canvas.drawLine(
+            Offset(cx + dx * w, bottom),
+            Offset(cx + (dx + lean) * w, bottom - body.height * hf),
+            blade,
+          );
+        }
+      case 1: // piedritas
+        for (final (dx, rf, tone) in const [
+          (-0.25, 0.20, 0.0),
+          (0.12, 0.26, 0.12),
+          (0.34, 0.14, -0.10),
+        ]) {
+          final r = w * rf;
+          final base = tint(const Color(0xFFB59B7C));
+          final lift =
+              tone >= 0 ? const Color(0xFFFFFFFF) : const Color(0xFF000000);
+          canvas.drawOval(
+            Rect.fromCenter(
+              center: Offset(cx + dx * w, bottom - r * 0.55),
+              width: r * 2,
+              height: r * 1.3,
+            ),
+            Paint()
+              ..color = Color.lerp(base, lift, tone.abs())!
+                  .withValues(alpha: alpha),
+          );
+        }
+      case 2: // florcita con tallo
+        final stemH = body.height * 0.85;
+        canvas.drawLine(
+          Offset(cx, bottom),
+          Offset(cx, bottom - stemH),
+          Paint()
+            ..color = tint(const Color(0xFF5E9E4F)).withValues(alpha: alpha)
+            ..strokeWidth = max(1.0, w * 0.10)
+            ..strokeCap = StrokeCap.round,
+        );
+        _drawFlower(
+          canvas,
+          Offset(cx, bottom - stemH),
+          max(1.2, w * 0.22),
+          alpha,
+          c,
+        );
+      default: // cactus bebé con florcita
+        final capW = w * 0.45;
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(
+              cx - capW * 0.5,
+              bottom - body.height * 0.8,
+              capW,
+              body.height * 0.8,
+            ),
+            Radius.circular(capW * 0.5),
+          ),
+          Paint()..color = tint(const Color(0xFF4E8C5A)).withValues(alpha: alpha),
+        );
+        _drawFlower(
+          canvas,
+          Offset(cx + w * 0.08, bottom - body.height * 0.8),
+          max(1.2, w * 0.14),
+          alpha,
+          c,
+        );
+    }
   }
 
   // --- Marcas viales ----------------------------------------------------------
@@ -1000,6 +1662,11 @@ class _Palette {
     required this.stripe,
     required this.haze,
     required this.propNight,
+    required this.cloudShade,
+    required this.kerbA,
+    required this.kerbB,
+    required this.pyrLit,
+    required this.pyrShade,
     required this.night,
   });
 
@@ -1033,6 +1700,17 @@ class _Palette {
   /// Tinte al que caen los props de la orilla cuando es de noche.
   final Color propNight;
 
+  /// Sombrita inferior de las nubes.
+  final Color cloudShade;
+
+  /// Cordones del hombro (franjas alternadas).
+  final Color kerbA;
+  final Color kerbB;
+
+  /// Pirámides del horizonte: cara iluminada y cara en sombra.
+  final Color pyrLit;
+  final Color pyrShade;
+
   /// true en el tema oscuro (noche estrellada con luna).
   final bool night;
 }
@@ -1057,28 +1735,38 @@ const _Palette _dark = _Palette(
   stripe: Color(0xFF4A5686),
   haze: Color(0xFF2E3358),
   propNight: Color(0xFF0C1024),
+  cloudShade: Color(0x00000000),
+  kerbA: Color(0xFFB23A48),
+  kerbB: Color(0xFFC9CFE8),
+  pyrLit: Color(0xFF3B3358),
+  pyrShade: Color(0xFF2A2342),
   night: true,
 );
 
 const _Palette _light = _Palette(
-  skyTop: Color(0xFF4FA6E6),
-  skyBottom: Color(0xFFFFE0A8),
+  skyTop: Color(0xFF2E9BF0),
+  skyBottom: Color(0xFFFFD9A0),
   star: Color(0xFFFFFFFF),
-  body: Color(0xFFFFF6D2),
-  bodyGlow: Color(0xFFFFDC9A),
+  body: Color(0xFFFFD84D),
+  bodyGlow: Color(0xFFFFC857),
   bodyShade: Color(0xFFFFE9B8),
-  cloud: Color(0xE6FFFFFF),
-  ridgeFar: Color(0xFFDCC3A0),
-  ridgeLit: Color(0xFFFFF0D2),
-  duneNear: Color(0xFFEFCB8E),
-  sandFar: Color(0xFFF4E0B6),
-  sandNear: Color(0xFFE2BC7E),
+  cloud: Color(0xF2FFFFFF),
+  ridgeFar: Color(0xFFD99A6C),
+  ridgeLit: Color(0xFFFFE3B8),
+  duneNear: Color(0xFFF2C06E),
+  sandFar: Color(0xFFF7DDA0),
+  sandNear: Color(0xFFEDB35F),
   shoulder: Color(0xFFC9A268),
   roadFar: Color(0xFFA7ADB5),
   roadNear: Color(0xFF5C6169),
   roadLine: Color(0xFFFFFDF2),
   stripe: Color(0xFFFFFFFF),
-  haze: Color(0xFFF8E9CC),
+  haze: Color(0xFFFBE6C4),
   propNight: Color(0xFF1A2233),
+  cloudShade: Color(0x99BFD3EE),
+  kerbA: Color(0xFFE53935),
+  kerbB: Color(0xFFFFFFFF),
+  pyrLit: Color(0xFFE9B873),
+  pyrShade: Color(0xFFC98F55),
   night: false,
 );

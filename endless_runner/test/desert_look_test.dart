@@ -153,6 +153,30 @@ void main() {
     );
   });
 
+  test('los cordones rojo/blanco alternan sobre el hombro del asfalto', () async {
+    final px = await render(dark: false);
+
+    // Centro de la franja de cordón (lado izquierdo) en coordenadas de carril.
+    final laneMid = 1 +
+        2 * MapRenderer.roadExtraFrac +
+        MapRenderer.shoulderFrac * 0.55;
+    final half = p.baseWidth * 0.5;
+
+    var rojos = 0;
+    var blancos = 0;
+    for (var t = 0.5; t <= 0.85; t += 0.004) {
+      final y = p.yAtT(t).round();
+      final x = (p.vanishX - half * laneMid * t).round();
+      final i = (y * w + x) * 4;
+      final r = px[i], g = px[i + 1], b = px[i + 2];
+      if (r > 180 && r - b > 140) rojos++;
+      if (r > 220 && g > 220 && b > 220) blancos++;
+    }
+
+    expect(rojos, greaterThan(3), reason: 'faltan las franjas rojas');
+    expect(blancos, greaterThan(3), reason: 'faltan las franjas blancas');
+  });
+
   test('el tema oscuro apaga el desierto y todo queda opaco', () async {
     final claro = await render(dark: false);
     final oscuro = await render(dark: true);
