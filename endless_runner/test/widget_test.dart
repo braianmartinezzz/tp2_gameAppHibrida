@@ -1,30 +1,28 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:endless_runner/main.dart';
+import 'package:runner_flutter/state/game_state.dart';
+import 'package:runner_flutter/widgets/game_header.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('el header muestra usuario, score y diamantes', (
+    WidgetTester tester,
+  ) async {
+    final gameState = GameState();
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    await tester.pumpWidget(
+      MaterialApp(home: Scaffold(body: GameHeader(gameState: gameState))),
+    );
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
+    expect(find.text('braian_123'), findsOneWidget);
+    expect(find.text('score: 0'), findsOneWidget);
+    expect(find.text('85'), findsOneWidget);
+    expect(find.text('BASIC'), findsOneWidget);
+
+    gameState.addScore(42);
     await tester.pump();
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    expect(find.text('score: 42'), findsOneWidget);
+    expect(find.text('score: 0'), findsNothing);
   });
 }

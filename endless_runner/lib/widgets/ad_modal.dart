@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 
-/// Publicidad simulada tipo modal con countdown, como en el boceto.
+/// Publicidad simulada tipo modal con countdown y formato de anuncio.
 /// Se muestra cada vez que se reinicia la partida (requisito de la consigna).
 Future<void> showAdModal(BuildContext context) {
   return showDialog(
@@ -26,7 +26,10 @@ class _AdModalContentState extends State<_AdModalContent> {
   void initState() {
     super.initState();
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      setState(() => _secondsLeft--);
+      if (!mounted) return;
+      setState(() {
+        _secondsLeft = (_secondsLeft - 1).clamp(0, 3);
+      });
       if (_secondsLeft <= 0) timer.cancel();
     });
   }

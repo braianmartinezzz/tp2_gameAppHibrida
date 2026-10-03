@@ -10,6 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   flame: ^1.18.0
+  flutter_svg: ^2.0.10
   cupertino_icons: ^1.0.6
 
 dev_dependencies:
@@ -19,3 +20,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/images/character/kenney_platformerCharacters/adventurer_vector.svg
+    - assets/images/character/sprites_corredor.png
