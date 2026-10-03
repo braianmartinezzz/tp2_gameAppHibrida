@@ -44,6 +44,7 @@ class CoinComponent extends DepthComponent {
     required super.speed,
     required super.spawnT,
     this.elevated = false,
+    this.value = 1,
   }) : super(
           position: Vector2.zero(),
           size: Vector2.all(1),
@@ -61,6 +62,11 @@ class CoinComponent extends DepthComponent {
 
   /// true = flota y hay que saltar para recogerla.
   final bool elevated;
+
+  /// Diamantes que da al recogerla (1 a 5). Las de 3 o más se dibujan doradas.
+  final int value;
+
+  bool get isGolden => value >= 3;
 
   /// Borde inferior de la caja sobre el propio suelo (en px de pantalla).
   double _bandMinPx = 0;
@@ -110,14 +116,17 @@ class CoinComponent extends DepthComponent {
       ..lineTo(w * 0.5, h)
       ..lineTo(0, h * 0.36)
       ..close();
+    final gemColor = isGolden ? _goldGem : _gem;
+    final shineColor = isGolden ? _goldShine : _shine;
+    final outlineColor = isGolden ? _goldOutline : _outline;
     canvas.drawPath(
       gem,
       Paint()
-        ..color = _outline.withValues(alpha: 0.7 * a)
+        ..color = outlineColor.withValues(alpha: 0.7 * a)
         ..style = PaintingStyle.stroke
         ..strokeWidth = (w * 0.06).clamp(0.8, 3.0),
     );
-    canvas.drawPath(gem, Paint()..color = _gem.withValues(alpha: a));
+    canvas.drawPath(gem, Paint()..color = gemColor.withValues(alpha: a));
 
     // Faceta clara arriba-izquierda + brillo puntual.
     final facet = Path()
@@ -125,7 +134,7 @@ class CoinComponent extends DepthComponent {
       ..lineTo(w * 0.5, h * 0.36)
       ..lineTo(0, h * 0.36)
       ..close();
-    canvas.drawPath(facet, Paint()..color = _shine.withValues(alpha: 0.5 * a));
+    canvas.drawPath(facet, Paint()..color = shineColor.withValues(alpha: 0.5 * a));
     canvas.drawCircle(
       Offset(w * 0.36, h * 0.2),
       (w * 0.07).clamp(0.6, 3.0),
@@ -136,6 +145,9 @@ class CoinComponent extends DepthComponent {
   static const Color _gem = Color(0xFF46DDF2);
   static const Color _shine = Color(0xFFC7F7FF);
   static const Color _outline = Color(0xFF0F3B4C);
+  static const Color _goldGem = Color(0xFFFFC53D);
+  static const Color _goldShine = Color(0xFFFFF0B3);
+  static const Color _goldOutline = Color(0xFF5A3B00);
 }
 
 /// Genera las monedas de un [pattern] ancladas en [anchorLane].
@@ -163,13 +175,19 @@ List<CoinComponent> buildCoinPattern({
   // Igual que el spawn de obstáculos (0.06) pero corrido: ver doc arriba.
   const start = 0.13;
 
-  CoinComponent coin(double lane, double spawnT, {required bool elevated}) =>
+  CoinComponent coin(
+    double lane,
+    double spawnT, {
+    required bool elevated,
+    int value = 1,
+  }) =>
       CoinComponent(
         lane: lane.clamp(-1.0, 1.0),
         perspective: perspective,
         speed: speed,
         spawnT: spawnT,
         elevated: elevated,
+        value: value,
       );
 
   switch (pattern) {
@@ -187,6 +205,7 @@ List<CoinComponent> buildCoinPattern({
             anchorLane + (i / 6 - 0.5) * 0.9,
             start + i * 0.014,
             elevated: false,
+            value: i == 3 ? 3 : 1, // la del medio es dorada
           ),
       ];
     case CoinPattern.zigzag:
@@ -200,10 +219,16 @@ List<CoinComponent> buildCoinPattern({
           ),
       ];
     case CoinPattern.high:
-      // Nube alta: una sola parábola de salto las recoge todas.
+      // Nube alta: una sola parábola de salto las recoge todas. Vale más por
+      // el riesgo de saltar: 2 cada una y la del centro, dorada, 5.
       return [
         for (var i = 0; i < 5; i++)
-          coin(anchorLane, start + i * 0.014, elevated: true),
+          coin(
+            anchorLane,
+            start + i * 0.014,
+            elevated: true,
+            value: i == 2 ? 5 : 2,
+          ),
       ];
   }
 }

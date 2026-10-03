@@ -6,10 +6,28 @@ import '../theme/app_theme.dart';
 /// Publicidad simulada tipo modal con countdown y formato de anuncio.
 /// Se muestra cada vez que se reinicia la partida (requisito de la consigna).
 Future<void> showAdModal(BuildContext context) {
-  return showDialog(
+  return showGeneralDialog<void>(
     context: context,
     barrierDismissible: false,
-    builder: (context) => const _AdModalContent(),
+    barrierLabel: 'Anuncio',
+    barrierColor: Colors.black54,
+    transitionDuration: const Duration(milliseconds: 220),
+    pageBuilder: (context, _, __) => const SafeArea(child: _AdModalContent()),
+    // Entrada: fundido + escala suave; salida: el mismo recorrido a la inversa.
+    transitionBuilder: (context, animation, _, child) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeInCubic,
+      );
+      return FadeTransition(
+        opacity: curved,
+        child: ScaleTransition(
+          scale: Tween<double>(begin: 0.92, end: 1).animate(curved),
+          child: child,
+        ),
+      );
+    },
   );
 }
 

@@ -82,7 +82,7 @@ void main() {
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(480, 760));
     final gameState = GameState()
-      ..diamonds.value = 1000000 // invulnerable: acá solo se mide el dibujo
+      ..lives.value = 1000000 // invulnerable: acá solo se mide el dibujo
       ..themeMode.value = ThemeMode.dark;
     final game = RunnerGame(gameState: gameState);
     await tester.pumpWidget(GameWidget(game: game));
@@ -189,7 +189,7 @@ void main() {
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(480, 760));
     final gameState = GameState()
-      ..diamonds.value = 1000000
+      ..lives.value = 1000000
       ..themeMode.value = ThemeMode.dark;
     final game = RunnerGame(gameState: gameState);
     await tester.pumpWidget(GameWidget(game: game));

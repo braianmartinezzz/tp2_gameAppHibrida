@@ -283,7 +283,7 @@ void main() {
   // -------------------------------------------------------------------------
   testWidgets('cada moneda recogida suma un diamante', (tester) async {
     final gameState = GameState()
-      ..diamonds.value = 1000000; // invulnerable: el test mide la recolección
+      ..lives.value = 1000000; // invulnerable: el test mide la recolección
     final game = RunnerGame(gameState: gameState);
     await tester.pumpWidget(GameWidget(game: game));
 
@@ -298,8 +298,8 @@ void main() {
 
     for (var i = 0; i < 400; i++) {
       await tester.pump(const Duration(milliseconds: 16));
-      // Invulnerable a propósito: acá se mide la recolección, y cada choque
-      // contra un obstáculo descontaría 10 diamantes y ensuciaría el conteo.
+      // Invulnerable a propósito: acá se mide la recolección y un choque
+      // contra un obstáculo sacudiría el resultado.
       game.powerUps.grantInvulnerability();
     }
 
@@ -319,7 +319,7 @@ void main() {
 
   testWidgets('sin imán no se recoge el carril vecino; con imán sí',
       (tester) async {
-    final gameState = GameState()..diamonds.value = 1000000;
+    final gameState = GameState()..lives.value = 1000000;
     final game = RunnerGame(gameState: gameState);
     await tester.pumpWidget(GameWidget(game: game));
     expect(game.player.lane, 0);
@@ -365,7 +365,7 @@ void main() {
   testWidgets('los patrones automáticos nunca caen en un obstáculo',
       (tester) async {
     final gameState = GameState()
-      ..diamonds.value = 1000000; // invulnerable: acá solo se mide el spawn
+      ..lives.value = 1000000; // invulnerable: acá solo se mide el spawn
     final game = RunnerGame(gameState: gameState);
     await tester.pumpWidget(GameWidget(game: game));
 
@@ -404,7 +404,7 @@ void main() {
   // Power-ups sueltos en el corredor.
   // -------------------------------------------------------------------------
   testWidgets('el power-up suelto se recoge al tocarlo', (tester) async {
-    final gameState = GameState()..diamonds.value = 1000000;
+    final gameState = GameState()..lives.value = 1000000;
     final game = RunnerGame(gameState: gameState);
     await tester.pumpWidget(GameWidget(game: game));
 
@@ -438,41 +438,36 @@ void main() {
 
   testWidgets('el escudo absorbe el primer golpe y el segundo corta',
       (tester) async {
-    final gameState = GameState()..diamonds.value = 0;
+    // Una sola vida: lo que no absorbe el escudo, mata.
+    final gameState = GameState()..lives.value = 1;
     final game = RunnerGame(gameState: gameState);
     await tester.pumpWidget(GameWidget(game: game));
     expect(game.powerUps.apply(PowerUpKind.shield), isTrue);
 
     // Piloto hasta que choque: el escudo debería volar en el primer impacto.
-    // Los diamantes se drenan a mano en cada frame: una moneda accidental
-    // habilitaría el "revive" de 10 y ensayaríamos otra mecánica.
     var shieldBroke = false;
     for (var i = 0; i < 1500 && !shieldBroke; i++) {
-      gameState.diamonds.value = 0;
       await tester.pump(const Duration(milliseconds: 16));
       _driveToNextObstacle(game);
       shieldBroke = !game.powerUps.hasShield;
     }
 
-    gameState.diamonds.value = 0;
     expect(shieldBroke, isTrue, reason: 'el escudo absorbió el choque');
     expect(gameState.isGameOver.value, isFalse, reason: 'sigue vivo');
-    expect(gameState.diamonds.value, 0, reason: 'no gastó diamantes');
+    expect(gameState.lives.value, 1, reason: 'el escudo no gasta vidas');
     expect(
       game.powerUps.isInvulnerable,
       isTrue,
       reason: 'queda un respiro tras romper el escudo',
     );
 
-    // Sin escudo y sin diamantes, el siguiente choque termina la partida.
+    // Sin escudo y con la última vida, el siguiente choque termina la partida.
     for (var i = 0; i < 2500 && !gameState.isGameOver.value; i++) {
-      gameState.diamonds.value = 0;
       await tester.pump(const Duration(milliseconds: 16));
       _driveToNextObstacle(game);
     }
 
-    gameState.diamonds.value = 0;
-    expect(gameState.isGameOver.value, isTrue, reason: 'sin escudo ni diamantes');
+    expect(gameState.isGameOver.value, isTrue, reason: 'sin escudo ni vidas');
     expect(gameState.score.value, greaterThan(0));
   });
 }

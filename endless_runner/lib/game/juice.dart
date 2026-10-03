@@ -44,6 +44,7 @@ class Juice {
   static const double _labelRise = 46;
 
   static const Color coinColor = Color(0xFF46DDF2);
+  static const Color goldColor = Color(0xFFFFC53D);
   static const Color hitColor = Color(0xFFE0483C);
   static const Color shieldColor = Color(0xFF378ADD);
 
@@ -92,7 +93,7 @@ class Juice {
   // --- Eventos -------------------------------------------------------------
 
   /// Recogida de moneda: anillo cian, chispas y el "+1" flotando.
-  void coinPickup(Offset at) {
+  void coinPickup(Offset at, {int value = 1}) {
     _addRing(at, r0: 5, r1: 34, color: coinColor, duration: 0.34);
     _addBurst(
       at,
@@ -103,7 +104,7 @@ class Juice {
       size: 3,
       upBias: 0.35,
     );
-    _addLabel(at, color: coinColor);
+    _addLabel(at, color: value >= 3 ? goldColor : coinColor, value: value);
   }
 
   /// Recogida de power-up: todo más grande, en el color del poder, con la
@@ -333,18 +334,19 @@ class Juice {
       );
       return;
     }
-    _drawPlusOne(canvas, center, label.color, a, scale);
+    _drawPlusValue(canvas, center, label.color, a, scale, label.value);
   }
 
   /// El "+1" de las monedas, trazado a mano (ver doc de la clase). Se pinta
   /// dos veces: primero un contorno oscuro y encima el color, para que se lea
   /// sobre la calle clara y sobre la oscura.
-  static void _drawPlusOne(
+  static void _drawPlusValue(
     Canvas canvas,
     Offset c,
     Color color,
     double a,
     double scale,
+    int value,
   ) {
     final s = scale;
     final cxPlus = c.dx - 7 * s;
@@ -355,13 +357,8 @@ class Juice {
       ..moveTo(cxPlus - 5 * s, c.dy)
       ..lineTo(cxPlus + 5 * s, c.dy)
       ..moveTo(cxPlus, c.dy - 5 * s)
-      ..lineTo(cxPlus, c.dy + 5 * s)
-      // "1": banderita, asta y base.
-      ..moveTo(cxOne - 4 * s, c.dy - 3.5 * s)
-      ..lineTo(cxOne, c.dy - 6 * s)
-      ..lineTo(cxOne, c.dy + 6 * s)
-      ..moveTo(cxOne - 4 * s, c.dy + 6 * s)
-      ..lineTo(cxOne + 4 * s, c.dy + 6 * s);
+      ..lineTo(cxPlus, c.dy + 5 * s);
+    _addDigit(glyphs, value.clamp(1, 5).toInt(), cxOne, c.dy, s);
 
     canvas.drawPath(
       glyphs,
@@ -381,6 +378,38 @@ class Juice {
         ..strokeWidth = 2.6 * s
         ..color = color.withValues(alpha: a),
     );
+  }
+
+  /// Dígitos 1 a 5 trazados con segmentos, en una caja de 8 x 12 centrada en
+  /// ([cx], [cy]) y escalada por [s]. Cada lista es una poligonal x,y,x,y...;
+  /// un `null` levanta el lápiz.
+  static const Map<int, List<double?>> _digitStrokes = {
+    1: [-4, -3.5, 0, -6, 0, 6, null, -4, 6, 4, 6],
+    2: [-4, -3.5, -2, -6, 2, -6, 4, -3.5, 4, -1, -4, 6, 4, 6],
+    3: [-4, -6, 4, -6, 0, -0.5, 2.5, -0.5, 4, 2, 4, 4, 2, 6, -2, 6, -4, 4],
+    4: [2, 6, 2, -6, -4, 2.5, 4.5, 2.5],
+    5: [4, -6, -3, -6, -4, -0.5, 1, -1, 4, 1.5, 4, 4, 2, 6, -2, 6, -4, 4],
+  };
+
+  static void _addDigit(Path path, int digit, double cx, double cy, double s) {
+    final pts = _digitStrokes[digit]!;
+    var pen = false;
+    for (var i = 0; i < pts.length;) {
+      if (pts[i] == null) {
+        pen = false;
+        i++;
+        continue;
+      }
+      final x = cx + pts[i]! * s;
+      final y = cy + pts[i + 1]! * s;
+      if (pen) {
+        path.lineTo(x, y);
+      } else {
+        path.moveTo(x, y);
+        pen = true;
+      }
+      i += 2;
+    }
   }
 
   // --- Utilidades -----------------------------------------------------------
@@ -434,10 +463,21 @@ class Juice {
     }
   }
 
-  void _addLabel(Offset at, {required Color color, PowerUpKind? icon}) {
+  void _addLabel(
+    Offset at, {
+    required Color color,
+    PowerUpKind? icon,
+    int value = 1,
+  }) {
     if (_labels.length >= maxLabels) _labels.removeAt(0);
     _labels.add(
-      JuiceLabel(at: at, color: color, icon: icon, duration: 0.75),
+      JuiceLabel(
+        at: at,
+        color: color,
+        icon: icon,
+        value: value,
+        duration: 0.75,
+      ),
     );
   }
 
@@ -528,6 +568,7 @@ class JuiceLabel {
     required this.at,
     required this.color,
     required this.icon,
+    this.value = 1,
     required double duration,
   })  : duration = duration,
         life = duration;
@@ -539,6 +580,9 @@ class JuiceLabel {
 
   /// `null` = etiqueta "+1" (monedas); con valor flota la ficha del poder.
   final PowerUpKind? icon;
+
+  /// Diamantes que muestra el "+N" (1 a 9).
+  final int value;
 
   final double duration;
   double life;

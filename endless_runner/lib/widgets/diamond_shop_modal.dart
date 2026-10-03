@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../state/game_state.dart';
+import '../state/rewards.dart';
 import '../theme/app_theme.dart';
 
 /// Monetización simulada con packs, precio ficticio y CTA de compra.
@@ -68,13 +69,13 @@ void showDiamondShopModal(BuildContext context, GameState gameState) {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Comprar diamantes',
+                          'Tienda',
                           style: theme.textTheme.titleLarge?.copyWith(
                             fontWeight: FontWeight.w900,
                           ),
                         ),
                         Text(
-                          'Compra simulada: no se cobra nada',
+                          'Mejoras con diamantes · las compras son simuladas',
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: theme.colorScheme.onSurfaceVariant,
                           ),
@@ -85,6 +86,20 @@ void showDiamondShopModal(BuildContext context, GameState gameState) {
                 ],
               ),
               const SizedBox(height: 16),
+              Text(
+                'Mejoras',
+                style: theme.textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              _UpgradesSection(gameState: gameState),
+              const SizedBox(height: 18),
+              Text(
+                'Comprar diamantes',
+                style: theme.textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
               ...packs.map(
                 (pack) => Padding(
                   padding: const EdgeInsets.only(bottom: 12),
@@ -103,6 +118,137 @@ void showDiamondShopModal(BuildContext context, GameState gameState) {
       );
     },
   );
+}
+
+/// Mejoras que se pagan con diamantes. Se redibuja sola al comprar.
+class _UpgradesSection extends StatelessWidget {
+  const _UpgradesSection({required this.gameState});
+
+  final GameState gameState;
+
+  static const _icons = {
+    UpgradeIds.startShield: Icons.shield_rounded,
+    UpgradeIds.magnet: Icons.compass_calibration_rounded,
+    UpgradeIds.multiplier: Icons.bolt_rounded,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return ListenableBuilder(
+      listenable:
+          Listenable.merge([gameState.upgradeLevels, gameState.diamonds]),
+      builder: (context, _) {
+        return Column(
+          children: [
+            for (final def in kUpgrades)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _UpgradeTile(
+                  def: def,
+                  icon: _icons[def.id] ?? Icons.star_rounded,
+                  level: gameState.upgradeLevel(def.id),
+                  balance: gameState.diamonds.value,
+                  onBuy: () => gameState.buyUpgrade(def),
+                  theme: theme,
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _UpgradeTile extends StatelessWidget {
+  const _UpgradeTile({
+    required this.def,
+    required this.icon,
+    required this.level,
+    required this.balance,
+    required this.onBuy,
+    required this.theme,
+  });
+
+  final UpgradeDef def;
+  final IconData icon;
+  final int level;
+  final int balance;
+  final VoidCallback onBuy;
+  final ThemeData theme;
+
+  @override
+  Widget build(BuildContext context) {
+    final maxed = level >= def.maxLevel;
+    final cost = maxed ? 0 : def.costs[level];
+    final affordable = balance >= cost;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: theme.colorScheme.primary, size: 28),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  def.title,
+                  style: theme.textTheme.bodyMedium
+                      ?.copyWith(fontWeight: FontWeight.w800),
+                ),
+                Text(
+                  def.description,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    for (var i = 0; i < def.maxLevel; i++)
+                      Container(
+                        margin: const EdgeInsets.only(right: 4),
+                        width: 18,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(999),
+                          color: i < level
+                              ? AppColors.play
+                              : theme.colorScheme.outlineVariant,
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (maxed)
+            const Text('MÁX',
+                style: TextStyle(
+                    fontWeight: FontWeight.w900, color: AppColors.play))
+          else
+            FilledButton.icon(
+              onPressed: affordable ? onBuy : null,
+              icon: const Icon(Icons.diamond_rounded, size: 16),
+              label: Text('$cost'),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                minimumSize: const Size(0, 38),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 class _PackCard extends StatelessWidget {

@@ -21,7 +21,7 @@ void main() {
 
     for (final dark in [true, false]) {
       final gameState = GameState()
-        ..diamonds.value = 1000000 // invulnerable: el preview solo dibuja
+        ..lives.value = 1000000 // invulnerable: el preview solo dibuja
         ..themeMode.value = dark ? ThemeMode.dark : ThemeMode.light;
       final game = RunnerGame(gameState: gameState);
       await tester.pumpWidget(GameWidget(game: game));

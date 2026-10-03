@@ -1,16 +1,68 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
+
+import 'rewards.dart';
+import 'settings_store.dart';
 
 /// Estado global simulado del jugador y de la partida.
 /// Se pasa por referencia al FlameGame para que el juego pueda
 /// leer/escribir score y diamantes, y la UI de Flutter (header,
 /// botonera, modales) reaccione a los cambios sin acoplarse al motor.
+///
+/// Dos recursos separados:
+///  - **Diamantes** ([diamonds]): la moneda del juego. Se gastan en las mejoras
+///    de la tienda. Se ganan recolectando (+1 a +5), con desafíos diarios,
+///    anuncios voluntarios (+5 a +20) e hitos de puntaje.
+///  - **Vidas** ([lives]): los corazones de la partida. Arrancan en
+///    [maxLives]; cada choque sin escudo resta una y con cero termina la
+///    partida.
 class GameState {
+  /// [store] persiste el progreso. Sin store (tests, previews) todo vive en
+  /// memoria. [clock] y [random] se inyectan para poder probar los desafíos
+  /// diarios y los anuncios.
+  GameState({SettingsStore? store, DateTime Function()? clock, Random? random})
+      : _store = store,
+        _clock = clock ?? DateTime.now,
+        _random = random ?? Random() {
+    _ensureToday();
+  }
+
+  final SettingsStore? _store;
+  final DateTime Function() _clock;
+  final Random _random;
+
+  /// Rango de la sensibilidad de los gestos: 1.0 es el comportamiento original.
+  static const double minSensitivity = 0.5;
+  static const double maxSensitivity = 2.0;
+  static const double defaultSensitivity = 1.0;
+
+  /// Corazones al empezar cada partida.
+  static const int maxLives = 2;
+
+  /// Anuncios voluntarios con premio por día.
+  static const int maxAdsPerDay = 5;
+
   final ValueNotifier<String> username = ValueNotifier('braian_123');
   final ValueNotifier<int> score = ValueNotifier(0);
   final ValueNotifier<int> diamonds = ValueNotifier(85);
   final ValueNotifier<String> accountType = ValueNotifier('basic'); // 'basic' | 'pro'
   final ValueNotifier<bool> isGameOver = ValueNotifier(false);
   final ValueNotifier<ThemeMode> themeMode = ValueNotifier(ThemeMode.dark);
+
+  /// Corazones que le quedan al jugador en la partida actual.
+  final ValueNotifier<int> lives = ValueNotifier(maxLives);
+
+  /// true mientras la partida está pausada por el usuario (overlay de pausa).
+  final ValueNotifier<bool> isPaused = ValueNotifier(false);
+
+  /// true si el usuario ya completó (o salteó) el tutorial de gestos.
+  final ValueNotifier<bool> tutorialSeen = ValueNotifier(false);
+
+  /// Multiplicador de sensibilidad de los gestos: valores altos aceptan
+  /// deslizamientos más cortos.
+  final ValueNotifier<double> swipeSensitivity =
+      ValueNotifier(defaultSensitivity);
 
   /// Mejor puntaje de la sesión. Vive en memoria (como todo el estado
   /// simulado de este prototipo): sobrevive a los reinicios de partida, no a
@@ -21,20 +73,185 @@ class GameState {
   final ValueNotifier<bool> isNewRecord = ValueNotifier(false);
 
   /// Diamantes ganados en la partida actual (distinto de [diamonds], que es
-  /// la billetera: se puede gastar en la tienda o en los golpes).
+  /// la billetera: se gasta en las mejoras de la tienda).
   final ValueNotifier<int> runDiamonds = ValueNotifier(0);
 
   bool get isPro => accountType.value == 'pro';
 
-  void addScore(int points) => score.value += points;
+  // --- Mejoras ---------------------------------------------------------------
 
-  void addDiamonds(int amount) => diamonds.value += amount;
+  /// Nivel comprado de cada mejora (id -> nivel). Se reemplaza el mapa entero
+  /// en cada compra para que los oyentes se enteren.
+  final ValueNotifier<Map<String, int>> upgradeLevels = ValueNotifier(const {});
 
-  /// Diamante recolectado en el corredor: suma a la billetera y al resumen de
-  /// la partida, para que el game over pueda contar lo ganado en la corrida.
-  void collectDiamond() {
-    diamonds.value += 1;
-    runDiamonds.value += 1;
+  int upgradeLevel(String id) => upgradeLevels.value[id] ?? 0;
+
+  /// Compra el siguiente nivel de [def] con diamantes. `false` si ya está al
+  /// máximo o no alcanzan.
+  bool buyUpgrade(UpgradeDef def) {
+    final level = upgradeLevel(def.id);
+    if (level >= def.maxLevel) return false;
+    if (!spendDiamonds(def.costs[level])) return false;
+    upgradeLevels.value = {...upgradeLevels.value, def.id: level + 1};
+    save();
+    return true;
+  }
+
+  // --- Hitos, desafíos y anuncios -------------------------------------------
+
+  /// Hitos de puntaje ya cobrados (por puntaje).
+  final Set<int> claimedMilestones = {};
+
+  /// Se incrementa cada vez que cambia algo de desafíos/hitos/anuncios: la
+  /// pantalla de premios se redibuja con esto.
+  final ValueNotifier<int> rewardsTick = ValueNotifier(0);
+
+  /// Desafíos completados y todavía sin reclamar (para el globito de la
+  /// botonera).
+  final ValueNotifier<int> claimable = ValueNotifier(0);
+
+  /// Último premio/aviso para mostrar como cartelito.
+  final ValueNotifier<RewardEvent?> rewardEvent = ValueNotifier(null);
+  int _eventId = 0;
+
+  String _dayKey = '';
+  List<ChallengeDef> _challenges = const [];
+  final Map<String, int> _progress = {};
+  final Set<String> _claimedChallenges = {};
+  int _adsToday = 0;
+
+  /// Desafíos de hoy (se renuevan solos al cambiar el día).
+  List<ChallengeDef> get challenges {
+    _ensureToday();
+    return _challenges;
+  }
+
+  int challengeProgress(ChallengeDef c) =>
+      min(c.target, _progress[c.id] ?? 0);
+
+  bool isChallengeComplete(ChallengeDef c) => challengeProgress(c) >= c.target;
+
+  bool isChallengeClaimed(ChallengeDef c) => _claimedChallenges.contains(c.id);
+
+  int get adsLeftToday {
+    _ensureToday();
+    return max(0, maxAdsPerDay - _adsToday);
+  }
+
+  void _ensureToday() {
+    final now = _clock();
+    final key = dayKey(now);
+    if (key == _dayKey) return;
+    _dayKey = key;
+    _challenges = pickDailyChallenges(now);
+    _progress.clear();
+    _claimedChallenges.clear();
+    _adsToday = 0;
+    _notifyRewards();
+  }
+
+  void _notifyRewards() {
+    claimable.value = _challenges
+        .where((c) => isChallengeComplete(c) && !isChallengeClaimed(c))
+        .length;
+    rewardsTick.value++;
+  }
+
+  void _emit(String title, {int diamonds = 0}) {
+    rewardEvent.value =
+        RewardEvent(id: ++_eventId, title: title, diamonds: diamonds);
+  }
+
+  /// Avanza los desafíos acumulativos (saltos, deslizamientos, partidas,
+  /// power-ups, diamantes).
+  void recordEvent(ChallengeMetric metric, [int amount = 1]) {
+    _ensureToday();
+    var completedNow = false;
+    for (final c in _challenges) {
+      if (c.metric != metric || c.isMax || isChallengeComplete(c)) continue;
+      _progress[c.id] = (_progress[c.id] ?? 0) + amount;
+      if (isChallengeComplete(c)) {
+        completedNow = true;
+        _emit('¡Desafío cumplido! ${c.title}');
+      }
+    }
+    if (completedNow) _notifyRewards();
+  }
+
+  void _recordScoreMax(int value) {
+    var completedNow = false;
+    for (final c in _challenges) {
+      if (!c.isMax || isChallengeComplete(c)) continue;
+      _progress[c.id] = max(_progress[c.id] ?? 0, value);
+      if (isChallengeComplete(c)) {
+        completedNow = true;
+        _emit('¡Desafío cumplido! ${c.title}');
+      }
+    }
+    if (completedNow) _notifyRewards();
+  }
+
+  /// Cobra un desafío completado. `false` si no corresponde.
+  bool claimChallenge(ChallengeDef c) {
+    _ensureToday();
+    if (!isChallengeComplete(c) || isChallengeClaimed(c)) return false;
+    _claimedChallenges.add(c.id);
+    diamonds.value += c.reward;
+    _notifyRewards();
+    save();
+    return true;
+  }
+
+  void _checkMilestones() {
+    for (final m in kMilestones) {
+      if (score.value < m.score || !claimedMilestones.add(m.score)) continue;
+      diamonds.value += m.reward;
+      _emit('¡Hito de ${m.score} puntos!', diamonds: m.reward);
+      _notifyRewards();
+      save();
+    }
+  }
+
+  /// Premio de un anuncio voluntario: 5 a 20 diamantes. Devuelve lo ganado, o
+  /// 0 si ya se agotó el cupo diario.
+  int grantAdReward() {
+    _ensureToday();
+    if (_adsToday >= maxAdsPerDay) return 0;
+    _adsToday++;
+    final amount = 5 + _random.nextInt(16);
+    diamonds.value += amount;
+    _notifyRewards();
+    save();
+    return amount;
+  }
+
+  // --- Partida ---------------------------------------------------------------
+
+  void addScore(int points) {
+    score.value += points;
+    if (isGameOver.value) return;
+    _recordScoreMax(score.value);
+    _checkMilestones();
+  }
+
+  void addDiamonds(int amount) {
+    diamonds.value += amount;
+    save();
+  }
+
+  /// Diamante(s) recolectado(s) en el corredor ([value] de 1 a 5): suma a la
+  /// billetera y al resumen de la partida. No guarda en disco por cada
+  /// moneda: se guarda al terminar o pausar.
+  void collectDiamond([int value = 1]) {
+    diamonds.value += value;
+    runDiamonds.value += value;
+    recordEvent(ChallengeMetric.diamonds, value);
+  }
+
+  /// Resta una vida. Devuelve las que quedan (0 = fin de la partida).
+  int loseLife() {
+    lives.value = max(0, lives.value - 1);
+    return lives.value;
   }
 
   /// Termina la partida: congela el resultado y actualiza el récord.
@@ -47,12 +264,15 @@ class GameState {
     isNewRecord.value = score.value > bestScore.value;
     if (isNewRecord.value) bestScore.value = score.value;
     isGameOver.value = true;
+    recordEvent(ChallengeMetric.runs);
+    save();
   }
 
-  /// Devuelve true si pudo pagar (simulado, nunca falla en este prototipo).
+  /// Devuelve true si pudo pagar.
   bool spendDiamonds(int amount) {
     if (diamonds.value < amount) return false;
     diamonds.value -= amount;
+    save();
     return true;
   }
 
@@ -65,9 +285,103 @@ class GameState {
         themeMode.value == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
   }
 
+  // --- Persistencia ----------------------------------------------------------
+
+  Map<String, dynamic> toJson() => {
+        'tutorialSeen': tutorialSeen.value,
+        'swipeSensitivity': swipeSensitivity.value,
+        'diamonds': diamonds.value,
+        'upgrades': Map<String, int>.of(upgradeLevels.value),
+        'milestones': claimedMilestones.toList(),
+        'daily': {
+          'day': _dayKey,
+          'progress': Map<String, int>.of(_progress),
+          'claimed': _claimedChallenges.toList(),
+          'ads': _adsToday,
+        },
+      };
+
+  void _applyJson(Map<String, dynamic> json) {
+    tutorialSeen.value = json['tutorialSeen'] == true;
+    final sens = json['swipeSensitivity'];
+    if (sens is num) {
+      swipeSensitivity.value =
+          sens.toDouble().clamp(minSensitivity, maxSensitivity).toDouble();
+    }
+    final gems = json['diamonds'];
+    if (gems is int && gems >= 0) diamonds.value = gems;
+
+    final upgrades = json['upgrades'];
+    if (upgrades is Map) {
+      upgradeLevels.value = {
+        for (final def in kUpgrades)
+          if (upgrades[def.id] is int)
+            def.id: (upgrades[def.id] as int).clamp(0, def.maxLevel).toInt(),
+      };
+    }
+    final milestones = json['milestones'];
+    if (milestones is List) {
+      claimedMilestones
+        ..clear()
+        ..addAll(milestones.whereType<int>());
+    }
+
+    // Los desafíos guardados solo valen si son de hoy; si no, quedan los
+    // recién sorteados.
+    final daily = json['daily'];
+    if (daily is Map && daily['day'] == dayKey(_clock())) {
+      _dayKey = daily['day'] as String;
+      _challenges = pickDailyChallenges(_clock());
+      _progress.clear();
+      final progress = daily['progress'];
+      if (progress is Map) {
+        progress.forEach((k, v) {
+          if (k is String && v is int) _progress[k] = v;
+        });
+      }
+      _claimedChallenges
+        ..clear()
+        ..addAll((daily['claimed'] as List? ?? const []).whereType<String>());
+      _adsToday = daily['ads'] is int ? daily['ads'] as int : 0;
+    }
+    _notifyRewards();
+  }
+
+  /// Carga el progreso guardado. Si falla (plugin no disponible, disco), la
+  /// app sigue con los valores por defecto: no es crítico.
+  Future<void> loadSettings() async {
+    final store = _store;
+    if (store == null) return;
+    try {
+      final saved = await store.load();
+      if (saved != null) _applyJson(saved);
+    } catch (_) {}
+  }
+
+  /// Guarda el progreso. Sin store no hace nada; los errores se ignoran.
+  void save() {
+    final store = _store;
+    if (store == null) return;
+    store.save(toJson()).catchError((Object _) {});
+  }
+
+  void markTutorialSeen() {
+    if (tutorialSeen.value) return;
+    tutorialSeen.value = true;
+    save();
+  }
+
+  void setSwipeSensitivity(double value) {
+    swipeSensitivity.value =
+        value.clamp(minSensitivity, maxSensitivity).toDouble();
+    save();
+  }
+
   void resetRun() {
+    isPaused.value = false;
     score.value = 0;
     runDiamonds.value = 0;
+    lives.value = maxLives;
     isNewRecord.value = false;
     isGameOver.value = false;
     // bestScore NO se toca: el récord es lo único que sobrevive a un reinicio.

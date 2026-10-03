@@ -8,9 +8,12 @@ import 'diamond_shop_modal.dart';
 /// Degradé violeta con texto blanco (se ve igual en modo claro y oscuro),
 /// esquinas redondeadas abajo y una sombra suave que la separa del juego.
 class GameHeader extends StatelessWidget {
-  const GameHeader({super.key, required this.gameState});
+  const GameHeader({super.key, required this.gameState, this.onBeforeShop});
 
   final GameState gameState;
+
+  /// Se llama justo antes de abrir la tienda (la pantalla pausa la partida).
+  final VoidCallback? onBeforeShop;
 
   @override
   Widget build(BuildContext context) {
@@ -94,7 +97,10 @@ class GameHeader extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           GestureDetector(
-            onTap: () => showDiamondShopModal(context, gameState),
+            onTap: () {
+              onBeforeShop?.call();
+              showDiamondShopModal(context, gameState);
+            },
             child: ValueListenableBuilder<int>(
               valueListenable: gameState.diamonds,
               builder: (_, diamonds, __) => _DiamondPill(diamonds: diamonds),

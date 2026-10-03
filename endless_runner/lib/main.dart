@@ -1,17 +1,25 @@
 import 'package:flutter/material.dart';
 import 'screens/home_screen.dart';
 import 'state/game_state.dart';
+import 'state/settings_store.dart';
 import 'theme/app_theme.dart';
 
-void main() {
-  runApp(RunnerApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Estado unico compartido por toda la app (usuario ya "logueado" simulado).
+  // Los ajustes (tutorial visto, sensibilidad) se cargan antes del primer
+  // frame para que el tutorial no parpadee en usuarios que ya lo hicieron.
+  final gameState = GameState(store: SettingsStore());
+  await gameState.loadSettings();
+
+  runApp(RunnerApp(gameState: gameState));
 }
 
 class RunnerApp extends StatelessWidget {
-  RunnerApp({super.key});
+  const RunnerApp({super.key, required this.gameState});
 
-  // Estado unico compartido por toda la app (usuario ya "logueado" simulado).
-  final GameState gameState = GameState();
+  final GameState gameState;
 
   @override
   Widget build(BuildContext context) {

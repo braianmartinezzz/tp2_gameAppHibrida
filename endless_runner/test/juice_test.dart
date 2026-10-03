@@ -271,14 +271,14 @@ void main() {
       await tester.binding.setSurfaceSize(_surface);
       final gameState = GameState()
         ..themeMode.value = ThemeMode.dark
-        ..diamonds.value = 0;
+        ..lives.value = 1;
       final game = RunnerGame(gameState: gameState);
       await tester.pumpWidget(GameWidget(game: game));
 
       for (var i = 0; i < 1500 && !gameState.isGameOver.value; i++) {
         await tester.pump(const Duration(milliseconds: 16));
       }
-      expect(gameState.isGameOver.value, isTrue, reason: 'sin diamantes mata');
+      expect(gameState.isGameOver.value, isTrue, reason: 'con la última vida, el golpe mata');
       final flashAtDeath = game.juice.flashAlpha;
       expect(flashAtDeath, greaterThan(0), reason: 'destello recién nacido');
       final shakeAtDeath = game.juice.shake;

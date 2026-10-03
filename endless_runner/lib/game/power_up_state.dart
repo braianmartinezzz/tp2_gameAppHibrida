@@ -16,11 +16,12 @@ class PowerUpState {
     this.invulnerableDuration = 1.2,
   });
 
-  /// Duración del imán, en segundos.
-  final double magnetDuration;
+  /// Duración del imán, en segundos. No es final: las mejoras de la tienda la
+  /// alargan.
+  double magnetDuration;
 
-  /// Duración del multiplicador, en segundos.
-  final double multiplierDuration;
+  /// Duración del multiplicador, en segundos (también ajustable por mejoras).
+  double multiplierDuration;
 
   /// Respiro de invulnerabilidad al absorber un golpe, en segundos.
   final double invulnerableDuration;
@@ -64,7 +65,7 @@ class PowerUpState {
     return true;
   }
 
-  /// Respiro de invulnerabilidad, p.ej. cuando el golpe se paga con diamantes.
+  /// Respiro de invulnerabilidad, p.ej. después de perder una vida.
   void grantInvulnerability() {
     invulnerableTimer = invulnerableDuration;
   }

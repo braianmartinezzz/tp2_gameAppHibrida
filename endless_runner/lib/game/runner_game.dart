@@ -3,6 +3,7 @@ import 'package:flame/game.dart';
 import 'package:flame/events.dart';
 import 'package:flutter/material.dart';
 import '../state/game_state.dart';
+import '../state/rewards.dart';
 import 'coin_component.dart';
 import 'depth_component.dart';
 import 'juice.dart';
@@ -13,10 +14,45 @@ import 'perspective.dart';
 import 'power_up_component.dart';
 import 'power_up_state.dart';
 
+/// Acciones que el jugador dispara con un gesto. El tutorial las escucha para
+/// saber si el usuario hizo lo que se le pidió.
+enum RunnerAction { moveLeft, moveRight, jump, roll }
+
 class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
   RunnerGame({required this.gameState});
 
   final GameState gameState;
+
+  /// Se llama cada vez que un gesto produce una acción efectiva del corredor
+  /// (un salto en el aire, que no hace nada, no cuenta).
+  void Function(RunnerAction action)? onAction;
+
+  /// Modo tutorial: el piso corre y el corredor responde a los gestos, pero no
+  /// hay obstáculos, monedas, score ni colisiones. Así el usuario practica sin
+  /// riesgo y ve el efecto real de cada gesto.
+  bool tutorialActive = false;
+
+  /// true si se puede pausar ahora (no hay partida terminada, ni tutorial, ni
+  /// pausa previa).
+  bool get canPause =>
+      !gameState.isGameOver.value &&
+      !gameState.isPaused.value &&
+      !tutorialActive;
+
+  /// Pausa la partida y avisa a la UI (overlay de pausa) vía [GameState].
+  void pauseGame() {
+    if (!canPause) return;
+    gameState.isPaused.value = true;
+    gameState.save(); // la pausa es buen momento para persistir lo recolectado
+    pauseEngine();
+  }
+
+  /// Reanuda una partida pausada con [pauseGame].
+  void resumeGame() {
+    if (!gameState.isPaused.value) return;
+    gameState.isPaused.value = false;
+    resumeEngine();
+  }
 
   late PlayerComponent _player;
   bool _hasPlayer = false;
@@ -91,6 +127,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
   Future<void> onLoad() async {
     _syncPerspective();
     _spawnPlayer();
+    _applyStartUpgrades();
   }
 
   @override
@@ -125,6 +162,15 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
 
     super.update(dt);
     _syncPerspective();
+
+    if (tutorialActive) {
+      // Tutorial: solo el piso y el corredor se mueven. No avanza el reloj de
+      // dificultad, así la primera partida real arranca desde cero.
+      _map.update(dt, 260, _perspective);
+      juice.update(dt);
+      return;
+    }
+
     _elapsed += dt;
     powerUps.update(dt);
 
@@ -197,8 +243,8 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     for (final coin in List<CoinComponent>.from(_coins)) {
       coin.speed = _difficultySpeed;
       if (coin.collidesWith(_player)) {
-        gameState.collectDiamond();
-        juice.coinPickup(_centerOf(coin));
+        gameState.collectDiamond(coin.value);
+        juice.coinPickup(_centerOf(coin), value: coin.value);
         _removeCoin(coin);
       } else if (coin.offScreen) {
         _removeCoin(coin);
@@ -213,7 +259,9 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
       }
       // Un escudo ya activo devuelve false: el ítem sigue volando y se
       // descarta al salir de pantalla en lugar de sumarse al pedo.
+      if (item.collidesWith(_player)) _syncUpgrades();
       if (item.collidesWith(_player) && powerUps.apply(item.kind)) {
+        gameState.recordEvent(ChallengeMetric.powerUps);
         juice.powerUpPickup(_centerOf(item), item.kind);
         _removePowerUp(item);
       }
@@ -313,10 +361,11 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
       return;
     }
 
-    // Simulado: perder diamantes o terminar la partida.
-    if (gameState.diamonds.value >= 10) {
-      gameState.spendDiamonds(10); // "revivir" gastando diamantes
-      powerUps.grantInvulnerability(); // respiro para que no te peguen de nuevo
+    // Sin escudo: cuesta una vida. Mientras queden corazones se sigue
+    // corriendo (con un respiro para que no te peguen de nuevo en el acto);
+    // con el último, se termina la partida.
+    if (gameState.loseLife() > 0) {
+      powerUps.grantInvulnerability();
       juice.hitPaid(at);
     } else {
       // Única puerta de entrada al fin de partida: congela el resultado,
@@ -483,7 +532,13 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
   //   ← / →  cambia de carril
   //   ↑      salta
   //   ↓      se agacha (o se tira si está en el aire)
-  static const double _swipeThreshold = 22; // px de arrastre para confirmar
+  /// Arrastre (px) que confirma un gesto con sensibilidad 1.0.
+  static const double baseSwipeThreshold = 22;
+
+  /// Arrastre efectivo según la sensibilidad elegida por el usuario: más
+  /// sensibilidad = gesto más corto (0.5 -> 44 px, 1.0 -> 22 px, 2.0 -> 11 px).
+  double get swipeThreshold =>
+      baseSwipeThreshold / gameState.swipeSensitivity.value;
 
   double _swipeX = 0;
   double _swipeY = 0;
@@ -501,24 +556,37 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
 
   @override
   void onPanUpdate(DragUpdateInfo info) {
-    if (gameState.isGameOver.value || _gestureConsumed) return;
+    if (gameState.isGameOver.value ||
+        gameState.isPaused.value ||
+        _gestureConsumed) {
+      return;
+    }
     _syncPerspective();
 
     final delta = info.delta.global;
     _swipeX += delta.x;
     _swipeY += delta.y;
 
-    final doneX = _swipeX.abs() >= _swipeThreshold;
-    final doneY = _swipeY.abs() >= _swipeThreshold;
+    final threshold = swipeThreshold;
+    final doneX = _swipeX.abs() >= threshold;
+    final doneY = _swipeY.abs() >= threshold;
     if (!doneX && !doneY) return;
 
     // Eje dominante: el más largo manda; en empate decide el horizontal.
     if (!doneY || (doneX && _swipeX.abs() >= _swipeY.abs())) {
-      _player.moveLane(_swipeX > 0 ? 1 : -1);
+      final dir = _swipeX > 0 ? 1 : -1;
+      _player.moveLane(dir);
+      onAction?.call(dir > 0 ? RunnerAction.moveRight : RunnerAction.moveLeft);
     } else if (_swipeY < 0) {
-      _player.jump();
+      if (_player.jump()) {
+        if (!tutorialActive) gameState.recordEvent(ChallengeMetric.jumps);
+        onAction?.call(RunnerAction.jump);
+      }
     } else {
-      _player.roll();
+      if (_player.roll()) {
+        if (!tutorialActive) gameState.recordEvent(ChallengeMetric.rolls);
+        onAction?.call(RunnerAction.roll);
+      }
     }
 
     // Un gesto = una acción; se limpia para no encadenar por inercia.
@@ -676,6 +744,27 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     _swipeX = 0;
     _swipeY = 0;
     _gestureConsumed = false;
+    _applyStartUpgrades();
     resumeEngine();
+  }
+
+  /// Pasa a los power-ups las duraciones que dan las mejoras compradas:
+  /// +2 s por nivel sobre la base de 6 s (imán) y 8 s (x2).
+  void _syncUpgrades() {
+    powerUps
+      ..magnetDuration =
+          6 + 2.0 * gameState.upgradeLevel(UpgradeIds.magnet)
+      ..multiplierDuration =
+          8 + 2.0 * gameState.upgradeLevel(UpgradeIds.multiplier);
+  }
+
+  /// Mejoras que actúan al arrancar la partida (escudo inicial). No en el
+  /// tutorial: ahí no hay golpes.
+  void _applyStartUpgrades() {
+    _syncUpgrades();
+    if (tutorialActive) return;
+    if (gameState.upgradeLevel(UpgradeIds.startShield) > 0) {
+      powerUps.apply(PowerUpKind.shield);
+    }
   }
 }

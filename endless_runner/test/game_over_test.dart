@@ -148,6 +148,7 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(480, 760));
       final state = GameState()
         ..themeMode.value = ThemeMode.dark
+        ..tutorialSeen.value = true // sin tutorial: este test es del resumen
         ..bestScore.value = 500;
       await tester.pumpWidget(MaterialApp(home: HomeScreen(gameState: state)));
 
@@ -217,7 +218,7 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(480, 760));
       final state = GameState()
         ..themeMode.value = ThemeMode.dark
-        ..diamonds.value = 0; // sin fondo: el primer golpe termina la partida
+        ..lives.value = 1; // última vida: el primer golpe termina la partida
       final game = RunnerGame(gameState: state);
       await tester.pumpWidget(GameWidget(game: game));
 

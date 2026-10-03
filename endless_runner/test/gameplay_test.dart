@@ -299,7 +299,7 @@ void main() {
   testWidgets('el spawn deja siempre un carril libre para esquivar',
       (tester) async {
     final gameState = GameState()
-      ..diamonds.value = 1000000; // invulnerable: el test mide el spawn
+      ..lives.value = 1000000; // invulnerable: el test mide el spawn
     final game = RunnerGame(gameState: gameState);
     await tester.pumpWidget(GameWidget(game: game));
 
@@ -346,8 +346,8 @@ void main() {
   // -------------------------------------------------------------------------
   // Fin de partida end-to-end: spawn → colisión → game over.
   // -------------------------------------------------------------------------
-  testWidgets('chocar sin diamantes termina la partida', (tester) async {
-    final gameState = GameState()..diamonds.value = 0;
+  testWidgets('chocar con la última vida termina la partida', (tester) async {
+    final gameState = GameState()..lives.value = 1;
     final game = RunnerGame(gameState: gameState);
     await tester.pumpWidget(GameWidget(game: game));
 
@@ -369,9 +369,30 @@ void main() {
     expect(
       gameState.isGameOver.value,
       isTrue,
-      reason: 'sin diamantes, el primer choque corta la partida',
+      reason: 'con una sola vida, el primer choque corta la partida',
     );
-    expect(gameState.diamonds.value, 0);
+    expect(gameState.lives.value, 0);
     expect(gameState.score.value, greaterThan(0));
+  });
+
+  testWidgets('con dos vidas el primer choque no corta; el segundo sí',
+      (tester) async {
+    final gameState = GameState();
+    expect(gameState.lives.value, GameState.maxLives);
+    final game = RunnerGame(gameState: gameState);
+    await tester.pumpWidget(GameWidget(game: game));
+
+    var sawOneLife = false;
+    for (var i = 0; i < 2500 && !gameState.isGameOver.value; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      if (gameState.lives.value == 1) {
+        sawOneLife = true;
+        expect(gameState.isGameOver.value, isFalse);
+      }
+    }
+
+    expect(sawOneLife, isTrue, reason: 'pasó por 1 vida antes de morir');
+    expect(gameState.isGameOver.value, isTrue);
+    expect(gameState.lives.value, 0);
   });
 }
