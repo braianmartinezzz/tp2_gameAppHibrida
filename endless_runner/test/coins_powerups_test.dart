@@ -284,7 +284,7 @@ void main() {
   testWidgets('cada moneda recogida suma un diamante', (tester) async {
     final gameState = GameState()
       ..lives.value = 1000000; // invulnerable: el test mide la recolección
-    final game = RunnerGame(gameState: gameState);
+    final game = RunnerGame(gameState: gameState, hordeEnabled: false, zombiesEnabled: false);
     await tester.pumpWidget(GameWidget(game: game));
 
     final start = gameState.diamonds.value;
@@ -320,7 +320,7 @@ void main() {
   testWidgets('sin imán no se recoge el carril vecino; con imán sí',
       (tester) async {
     final gameState = GameState()..lives.value = 1000000;
-    final game = RunnerGame(gameState: gameState);
+    final game = RunnerGame(gameState: gameState, hordeEnabled: false, zombiesEnabled: false);
     await tester.pumpWidget(GameWidget(game: game));
     expect(game.player.lane, 0);
 
@@ -366,7 +366,7 @@ void main() {
       (tester) async {
     final gameState = GameState()
       ..lives.value = 1000000; // invulnerable: acá solo se mide el spawn
-    final game = RunnerGame(gameState: gameState);
+    final game = RunnerGame(gameState: gameState, hordeEnabled: false, zombiesEnabled: false);
     await tester.pumpWidget(GameWidget(game: game));
 
     var sawPattern = false;
@@ -405,7 +405,7 @@ void main() {
   // -------------------------------------------------------------------------
   testWidgets('el power-up suelto se recoge al tocarlo', (tester) async {
     final gameState = GameState()..lives.value = 1000000;
-    final game = RunnerGame(gameState: gameState);
+    final game = RunnerGame(gameState: gameState, hordeEnabled: false, zombiesEnabled: false);
     await tester.pumpWidget(GameWidget(game: game));
 
     final item = game.spawnPowerUp(

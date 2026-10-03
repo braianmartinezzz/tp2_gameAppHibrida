@@ -1,0 +1,1209 @@
+diff --git a/endless_runner/lib/game/runner_game.dart b/endless_runner/lib/game/runner_game.dart
+index 54acf2d..874ed8f 100644
+--- a/endless_runner/lib/game/runner_game.dart
++++ b/endless_runner/lib/game/runner_game.dart
+@@ -14,13 +14,18 @@ import 'obstacle_component.dart';
+ import 'perspective.dart';
+ import 'power_up_component.dart';
+ import 'power_up_state.dart';
++import 'zombie_obstacle.dart';
+ 
+ /// Acciones que el jugador dispara con un gesto. El tutorial las escucha para
+ /// saber si el usuario hizo lo que se le pidió.
+ enum RunnerAction { moveLeft, moveRight, jump, roll }
+ 
+ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
+-  RunnerGame({required this.gameState, this.hordeEnabled = true});
++  RunnerGame({
++    required this.gameState,
++    this.hordeEnabled = true,
++    this.zombiesEnabled = true,
++  });
+ 
+   final GameState gameState;
+ 
+@@ -32,6 +37,10 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
+   /// Estado de la horda (expuesto para tests y previews).
+   final ChaseHorde horde = ChaseHorde();
+ 
++  /// Zombis móviles que aparecen como obstáculos (patrullan o persiguen al
++  /// jugador). Los tests que miden otra cosa los apagan.
++  bool zombiesEnabled;
++
+   /// Se llama cada vez que un gesto produce una acción efectiva del corredor
+   /// (un salto en el aire, que no hace nada, no cuenta).
+   void Function(RunnerAction action)? onAction;
+@@ -90,12 +99,31 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
+   double _deathTimer = 0;
+ 
+   final List<ObstacleComponent> _obstacles = [];
++  final List<ZombieObstacle> _zombies = [];
+   final List<CoinComponent> _coins = [];
+   final List<PowerUpComponent> _powerUpItems = [];
+   final Random _rng = Random();
+   final MapRenderer _map = MapRenderer();
+ 
+   double _spawnCooldown = 0;
++
++  // Zombis: primer zombi a los 8 s; después la cadencia sube con la dificultad.
++  double _zombieCooldown = _firstZombieDelay;
++  static const double _firstZombieDelay = 8.0;
++
++  /// Segundos de separación mínima entre un zombi y el obstáculo fijo más
++  /// cercano (en cualquier orden). Todos bajan a la misma velocidad, así que
++  /// esa separación en el spawn es la que llega al jugador: nunca tiene que
++  /// esquivar un zombi y un obstáculo a la vez.
++  static const double _zombieClearance = 1.0;
++  double _sinceObstacleSpawn = 999;
++  double _sinceZombieSpawn = 999;
++
++  /// Dificultad 0..1 para zombis: llega al máximo a los 90 s de partida.
++  double get zombieDifficulty => (_elapsed / 90).clamp(0.0, 1.0).toDouble();
++
++  /// Zombis vivos (expuesto para tests).
++  List<ZombieObstacle> get zombies => List.unmodifiable(_zombies);
+   double _coinCooldown = 2.0;
+   double _powerUpCooldown = 10.0;
+   double _difficultySpeed =
+@@ -124,6 +152,9 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
+     for (final item in _powerUpItems) {
+       item.perspective = _perspective;
+     }
++    for (final zombie in _zombies) {
++      zombie.perspective = _perspective;
++    }
+     if (_hasPlayer) {
+       // Al redimensionar solo se mueve la fila de suelo: carril y salto
+       // se conservan.
+@@ -212,10 +243,30 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
+     // carrera crece junto con la dificultad.
+     _map.update(dt, _difficultySpeed, _perspective);
+ 
++    _sinceObstacleSpawn += dt;
++    _sinceZombieSpawn += dt;
++
+     _spawnCooldown -= dt;
+     if (_spawnCooldown <= 0) {
+-      _spawnObstacle();
+-      _spawnCooldown = max(0.45, 1.1 - _elapsed * 0.01);
++      if (zombiesEnabled && _sinceZombieSpawn < _zombieClearance) {
++        // Acaba de nacer un zombi: el obstáculo espera para no apelotonarse.
++        _spawnCooldown = _zombieClearance - _sinceZombieSpawn;
++      } else {
++        _spawnObstacle();
++        _spawnCooldown = max(0.45, 1.1 - _elapsed * 0.01);
++      }
++    }
++
++    if (zombiesEnabled) {
++      _zombieCooldown -= dt;
++      if (_zombieCooldown <= 0) {
++        if (_sinceObstacleSpawn < _zombieClearance) {
++          _zombieCooldown = _zombieClearance - _sinceObstacleSpawn;
++        } else {
++          spawnZombie();
++          _zombieCooldown = _nextZombieDelay();
++        }
++      }
+     }
+ 
+     // Tandas de monedas e ítems de power-up, con su propia cadencia.
+@@ -249,6 +300,23 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
+       }
+     }
+ 
++    for (final zombie in List<ZombieObstacle>.from(_zombies)) {
++      zombie.speed = _difficultySpeed;
++      zombie.targetLane = _player.lanePos;
++      // Misma regla que los obstáculos: un solo golpe por cruce y nada
++      // mientras dure la invulnerabilidad.
++      final touching =
++          !powerUps.isInvulnerable && zombie.collidesWith(_player);
++      if (touching && !zombie.wasTouching) {
++        _onCollision();
++      }
++      zombie.wasTouching = touching;
++      if (zombie.offScreen) {
++        zombie.removeFromParent();
++        _zombies.remove(zombie);
++      }
++    }
++
+     for (final coin in List<CoinComponent>.from(_coins)) {
+       coin.speed = _difficultySpeed;
+       if (coin.collidesWith(_player)) {
+@@ -328,6 +396,50 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
+     );
+     _obstacles.add(obstacle);
+     add(obstacle);
++    _sinceObstacleSpawn = 0;
++  }
++
++  // --- Zombis móviles ----------------------------------------------------------
++
++  /// Segundos hasta el próximo zombi: de ~6 s al principio a ~2,8 s con la
++  /// dificultad máxima, más un poco de azar.
++  double _nextZombieDelay() =>
++      6.0 - 3.2 * zombieDifficulty + _rng.nextDouble() * 1.5;
++
++  /// Carril de base de un zombi nuevo según su tipo.
++  double _zombieHomeLane(ZombieKind kind) {
++    switch (kind) {
++      case ZombieKind.slow:
++        return _rng.nextBool() ? -0.5 : 0.5;
++      case ZombieKind.normal:
++        return 0.0;
++      case ZombieKind.fast:
++        return (_rng.nextInt(3) - 1).toDouble();
++    }
++  }
++
++  /// Genera un zombi y lo suma a la partida.
++  ///
++  /// [kind] y [lane] son para tests y guiones; en el juego el tipo sale de la
++  /// dificultad ([ZombieKind.roll]) y el carril de base depende del tipo: el
++  /// lento patrulla un tramo de dos carriles, el normal todo el corredor y el
++  /// rápido arranca en un carril cualquiera y después persigue al jugador.
++  ZombieObstacle spawnZombie({ZombieKind? kind, double? lane}) {
++    final difficulty = zombieDifficulty;
++    final chosen = kind ?? ZombieKind.roll(difficulty, _rng.nextDouble());
++    final home = lane ?? _zombieHomeLane(chosen);
++    final zombie = ZombieObstacle(
++      lane: home,
++      speed: _difficultySpeed,
++      perspective: _perspective,
++      kind: chosen,
++      difficulty: difficulty,
++      random: _rng,
++    )..targetLane = _player.lanePos;
++    _zombies.add(zombie);
++    add(zombie);
++    _sinceZombieSpawn = 0;
++    return zombie;
+   }
+ 
+   /// Carril para el próximo obstáculo, mirando los dos más cercanos que aún no
+@@ -761,6 +873,13 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
+       obstacle.removeFromParent();
+     }
+     _obstacles.clear();
++    for (final zombie in _zombies) {
++      zombie.removeFromParent();
++    }
++    _zombies.clear();
++    _zombieCooldown = _firstZombieDelay;
++    _sinceObstacleSpawn = 999;
++    _sinceZombieSpawn = 999;
+     for (final coin in _coins) {
+       coin.removeFromParent();
+     }
+diff --git a/endless_runner/lib/game/zombie_obstacle.dart b/endless_runner/lib/game/zombie_obstacle.dart
+new file mode 100644
+index 0000000..4a399bb
+--- /dev/null
++++ b/endless_runner/lib/game/zombie_obstacle.dart
+@@ -0,0 +1,457 @@
++import 'dart:math';
++
++import 'package:flame/components.dart';
++import 'package:flutter/material.dart';
++
++import 'depth_component.dart';
++
++/// Cómo se mueve un zombi de costado mientras avanza hacia el jugador.
++enum ZombieBehavior {
++  /// Camina de ida y vuelta entre dos carriles (patrulla).
++  patrol,
++
++  /// Persigue el carril del jugador hasta cierta profundidad; después se
++  /// "compromete" y corre en línea recta (así siempre se puede esquivar).
++  chase,
++}
++
++/// Los tres tipos de zombi. Cada uno se distingue a simple vista (color,
++/// tamaño, aro del piso) y en cómo se mueve.
++enum ZombieKind {
++  /// Tanque: grande, verde pálido, patrulla despacio entre dos carriles.
++  slow(
++    behavior: ZombieBehavior.patrol,
++    width: 56,
++    height: 104,
++    lateralSpeed: 0.40,
++    patrolSpan: 1.0,
++    stepRate: 5,
++    torso: 0.86,
++    skin: Color(0xFF9DB872),
++    clothes: Color(0xFF7A6A44),
++    ring: Color(0xFFB7D957),
++    eyes: Color(0xFFEDE9A6),
++  ),
++
++  /// Caminante común: tamaño medio, patrulla todo el ancho del corredor.
++  normal(
++    behavior: ZombieBehavior.patrol,
++    width: 44,
++    height: 92,
++    lateralSpeed: 0.70,
++    patrolSpan: 2.0,
++    stepRate: 8,
++    torso: 0.70,
++    skin: Color(0xFF5FA36A),
++    clothes: Color(0xFF3E5C8A),
++    ring: Color(0xFFF2A33D),
++    eyes: Color(0xFFFFF3B0),
++  ),
++
++  /// Corredor: chico, violáceo y de ojos rojos; persigue al jugador.
++  fast(
++    behavior: ZombieBehavior.chase,
++    width: 36,
++    height: 82,
++    lateralSpeed: 1.30,
++    patrolSpan: 0,
++    stepRate: 13,
++    torso: 0.58,
++    skin: Color(0xFF9A6FB8),
++    clothes: Color(0xFF8E2B2A),
++    ring: Color(0xFFE24B4A),
++    eyes: Color(0xFFFF4D4D),
++  );
++
++  const ZombieKind({
++    required this.behavior,
++    required this.width,
++    required this.height,
++    required this.lateralSpeed,
++    required this.patrolSpan,
++    required this.stepRate,
++    required this.torso,
++    required this.skin,
++    required this.clothes,
++    required this.ring,
++    required this.eyes,
++  });
++
++  final ZombieBehavior behavior;
++
++  /// Ancho y alto en la línea base (t = 1), sin el factor de dificultad.
++  final double width;
++  final double height;
++
++  /// Velocidad lateral base en carriles por segundo.
++  final double lateralSpeed;
++
++  /// Ancho (en carriles) del tramo que patrulla. Ignorado al perseguir.
++  final double patrolSpan;
++
++  /// Velocidad del ciclo de caminata (rad/s) para la animación.
++  final double stepRate;
++
++  /// Ancho del torso como fracción del ancho total.
++  final double torso;
++
++  final Color skin;
++  final Color clothes;
++
++  /// Color del aro en el piso: se lee desde lejos y distingue el tipo.
++  final Color ring;
++  final Color eyes;
++
++  /// Dificultad (0..1) a partir de la cual puede aparecer el zombi rápido.
++  static const double fastUnlock = 0.2;
++
++  /// Elige el tipo según la [difficulty] (0..1) y un número [roll] (0..1).
++  ///
++  /// Al principio casi todo son lentos; con el tiempo se pierden lentos y
++  /// ganan peso los rápidos (que no aparecen antes de [fastUnlock]).
++  static ZombieKind roll(double difficulty, double roll) {
++    final d = difficulty.clamp(0.0, 1.0).toDouble();
++    final pFast = d < fastUnlock ? 0.0 : 0.10 + 0.40 * d;
++    final pSlow = 0.55 - 0.35 * d;
++    if (roll < pFast) return ZombieKind.fast;
++    if (roll < pFast + pSlow) return ZombieKind.slow;
++    return ZombieKind.normal;
++  }
++}
++
++/// Zombi móvil que funciona como obstáculo.
++///
++/// Hereda de [DepthComponent] (que a su vez es un `PositionComponent`), así
++/// reutiliza la ley de movimiento en perspectiva y la colisión por fila +
++/// carril + altura de los demás obstáculos. Lo propio del zombi es el
++/// movimiento lateral —patrulla o persecución—, los diferenciadores visuales
++/// por tipo y cómo escala con la dificultad.
++///
++/// Todos los tipos bajan a la velocidad del piso: así la separación en el
++/// tiempo con los obstáculos fijos que decide el spawner se mantiene hasta
++/// el jugador. Lo que cambia entre tipos es el movimiento de costado.
++///
++/// Altura: a la altura del jugador (profundidad ~0,86) hasta el más bajo mide
++/// ~70 px, más que el techo del salto (~60 px): ninguno se salta ni se pasa
++/// agachado, hay que cambiar de carril.
++class ZombieObstacle extends DepthComponent {
++  ZombieObstacle({
++    required super.lane,
++    required super.speed,
++    required super.perspective,
++    this.kind = ZombieKind.normal,
++    this.difficulty = 0,
++    double? phase,
++    Random? random,
++  }) : super(
++          position: Vector2.zero(),
++          size: Vector2.all(1),
++          anchor: Anchor.topLeft,
++        ) {
++    final rng = random ?? Random();
++    _phase = rng.nextDouble() * 2 * pi;
++    _dir = rng.nextBool() ? 1 : -1;
++
++    if (kind.behavior == ZombieBehavior.patrol) {
++      // `lane` es el centro de la patrulla; el tramo no sale del corredor.
++      final half = kind.patrolSpan * 0.5;
++      patrolMin = (lane - half).clamp(-1.0, 1.0).toDouble();
++      patrolMax = (lane + half).clamp(-1.0, 1.0).toDouble();
++      // Arranca en un punto cualquiera del tramo (o en el que se pida).
++      final p = (phase ?? rng.nextDouble()).clamp(0.0, 1.0).toDouble();
++      this.lane = patrolMin + (patrolMax - patrolMin) * p;
++    } else {
++      patrolMin = -1;
++      patrolMax = 1;
++    }
++    syncGeometry();
++  }
++
++  /// Tipo de zombi (define aspecto, tamaño y movimiento).
++  final ZombieKind kind;
++
++  /// Dificultad de la partida al nacer (0..1): agranda y acelera al zombi.
++  final double difficulty;
++
++  /// Límites de la patrulla en carriles (solo para [ZombieBehavior.patrol]).
++  late final double patrolMin;
++  late final double patrolMax;
++
++  /// Carril que persigue el zombi rápido: el juego lo refresca cada frame
++  /// con la posición del jugador.
++  double targetLane = 0;
++
++  /// true si en el frame anterior estaba tocando al jugador.
++  bool wasTouching = false;
++
++  /// Profundidad (t) a partir de la cual el zombi que persigue deja de
++  /// seguir al jugador y corre derecho: da tiempo de sobra para esquivar.
++  static const double lockT = 0.55;
++
++  /// Cuánto sube la velocidad lateral con la dificultad máxima (+60 %).
++  static const double speedGain = 0.6;
++
++  /// Cuánto crece el zombi con la dificultad máxima (+12 %).
++  static const double sizeGain = 0.12;
++
++  double _phase = 0;
++  double _time = 0;
++  double _dir = 1;
++  bool _locked = false;
++
++  /// true cuando el zombi que persigue ya fijó su carril.
++  bool get locked => _locked;
++
++  /// Dirección actual de la patrulla (+1 derecha, -1 izquierda).
++  double get direction => _dir;
++
++  /// Velocidad lateral efectiva (carriles/seg): sube con la dificultad.
++  double get lateralSpeed =>
++      kind.lateralSpeed * (1 + speedGain * difficulty.clamp(0.0, 1.0));
++
++  /// Factor de tamaño por dificultad.
++  double get sizeFactor => 1 + sizeGain * difficulty.clamp(0.0, 1.0);
++
++  // --- Ciclo -----------------------------------------------------------------
++
++  @override
++  void update(double dt) {
++    super.update(dt);
++    _time += dt;
++    advance(dt); // misma ley de perspectiva que el resto de los actores
++    switch (kind.behavior) {
++      case ZombieBehavior.patrol:
++        _patrol(dt);
++      case ZombieBehavior.chase:
++        _chase(dt);
++    }
++    syncGeometry();
++  }
++
++  /// Ida y vuelta entre [patrolMin] y [patrolMax].
++  void _patrol(double dt) {
++    lane += _dir * lateralSpeed * dt;
++    if (lane >= patrolMax) {
++      lane = patrolMax;
++      _dir = -1;
++    } else if (lane <= patrolMin) {
++      lane = patrolMin;
++      _dir = 1;
++    }
++  }
++
++  /// Se acerca al [targetLane] hasta [lockT]; después mantiene el carril.
++  void _chase(double dt) {
++    if (!_locked && t >= lockT) _locked = true;
++    if (_locked) return;
++    final diff = targetLane - lane;
++    final step = lateralSpeed * dt;
++    lane = diff.abs() <= step ? targetLane : lane + step * diff.sign;
++  }
++
++  /// Recalcula posición y tamaño a partir de [baseY] y [lane].
++  void syncGeometry() {
++    final s = depthScale;
++    final w = kind.width * sizeFactor * s;
++    final h = kind.height * sizeFactor * s;
++    position.setValues(centerX - w * 0.5, baseY - h);
++    size.setValues(w, h);
++  }
++
++  // --- Dibujo ----------------------------------------------------------------
++
++  @override
++  void render(Canvas canvas) {
++    final a = alpha;
++    if (a <= 0) return;
++    final w = size.x;
++    final h = size.y;
++    if (w <= 0 || h <= 0) return;
++
++    final sway = sin(_time * kind.stepRate + _phase); // -1..1
++    final bob = sway.abs() * h * 0.02;
++
++    final dark = Color.lerp(kind.clothes, Colors.black, 0.45)!;
++    final skin = kind.skin.withValues(alpha: a);
++
++    // Sombra y aro del color del tipo en el piso.
++    final groundH = (h * 0.06 + 3).clamp(3.0, 12.0).toDouble();
++    canvas.drawOval(
++      Rect.fromCenter(
++        center: Offset(w * 0.5, h),
++        width: w * 1.05,
++        height: groundH,
++      ),
++      Paint()..color = const Color(0xFF000000).withValues(alpha: 0.28 * a),
++    );
++    canvas.drawOval(
++      Rect.fromCenter(
++        center: Offset(w * 0.5, h),
++        width: w * 1.2,
++        height: groundH * 1.3,
++      ),
++      Paint()
++        ..style = PaintingStyle.stroke
++        ..strokeWidth = max(1.5, w * 0.04)
++        ..color = kind.ring.withValues(alpha: 0.85 * a),
++    );
++
++    // Estela de velocidad sobre la cabeza del que corre.
++    if (kind.behavior == ZombieBehavior.chase) {
++      final streak = Paint()
++        ..strokeWidth = max(1.0, w * 0.05)
++        ..strokeCap = StrokeCap.round
++        ..color = kind.ring.withValues(alpha: 0.4 * a);
++      for (var i = 0; i < 3; i++) {
++        final x = w * (0.3 + 0.2 * i);
++        canvas.drawLine(
++          Offset(x, -h * 0.04),
++          Offset(x, -h * (0.18 + 0.05 * i)),
++          streak,
++        );
++      }
++    }
++
++    // Piernas: una se levanta mientras la otra apoya.
++    final legH = h * 0.26;
++    final legW = w * 0.26;
++    final liftL = max(0.0, sway) * h * 0.05;
++    final liftR = max(0.0, -sway) * h * 0.05;
++    final legPaint = Paint()..color = dark.withValues(alpha: a);
++    canvas.drawRRect(
++      RRect.fromRectAndRadius(
++        Rect.fromLTWH(w * 0.5 - legW * 1.1, h - legH - liftL, legW, legH),
++        Radius.circular(legW * 0.3),
++      ),
++      legPaint,
++    );
++    canvas.drawRRect(
++      RRect.fromRectAndRadius(
++        Rect.fromLTWH(w * 0.5 + legW * 0.1, h - legH - liftR, legW, legH),
++        Radius.circular(legW * 0.3),
++      ),
++      legPaint,
++    );
++
++    // Torso con la ropa rota.
++    final torsoW = w * kind.torso;
++    final top = h * 0.30 - bob;
++    final bottom = h - legH + h * 0.02;
++    final torso = Rect.fromLTRB(
++      w * 0.5 - torsoW * 0.5,
++      top,
++      w * 0.5 + torsoW * 0.5,
++      bottom,
++    );
++    canvas.drawRRect(
++      RRect.fromRectAndRadius(torso, Radius.circular(torsoW * 0.18)),
++      Paint()
++        ..shader = LinearGradient(
++          colors: [
++            kind.clothes.withValues(alpha: a),
++            dark.withValues(alpha: a),
++          ],
++          begin: Alignment.topCenter,
++          end: Alignment.bottomCenter,
++        ).createShader(torso),
++    );
++    // Dobladillo roto: dientes de piel asomando abajo.
++    final teeth = Path();
++    const spikes = 4;
++    final spikeW = torsoW / spikes;
++    teeth.moveTo(torso.left, bottom);
++    for (var i = 0; i < spikes; i++) {
++      teeth
++        ..lineTo(torso.left + spikeW * (i + 0.5), bottom - h * 0.05)
++        ..lineTo(torso.left + spikeW * (i + 1), bottom);
++    }
++    teeth.close();
++    canvas.drawPath(teeth, Paint()..color = skin);
++    // Mancha oscura en el pecho.
++    canvas.drawOval(
++      Rect.fromLTWH(
++        torso.left + torsoW * 0.15,
++        top + (bottom - top) * 0.35,
++        torsoW * 0.3,
++        (bottom - top) * 0.18,
++      ),
++      Paint()..color = const Color(0xFF4A1414).withValues(alpha: 0.55 * a),
++    );
++
++    // Brazos estirados hacia el jugador, balanceándose.
++    final armPaint = Paint()
++      ..color = skin
++      ..strokeWidth = max(2.0, w * 0.13)
++      ..strokeCap = StrokeCap.round;
++    final shoulderY = top + h * 0.07;
++    canvas.drawLine(
++      Offset(torso.left, shoulderY),
++      Offset(0, shoulderY - h * 0.02 + sway * h * 0.04),
++      armPaint,
++    );
++    canvas.drawLine(
++      Offset(torso.right, shoulderY),
++      Offset(w, shoulderY - h * 0.02 - sway * h * 0.04),
++      armPaint,
++    );
++
++    // Cabeza.
++    final headR = min(w * 0.27, h * 0.13);
++    final head = Offset(w * 0.5 + sway * w * 0.03, top - headR * 0.35);
++    canvas.drawCircle(head, headR, Paint()..color = skin);
++    canvas.drawArc(
++      Rect.fromCircle(center: head, radius: headR),
++      pi,
++      pi,
++      true,
++      Paint()..color = dark.withValues(alpha: a),
++    );
++
++    // Ojos brillantes (un halo suave detrás de cada uno).
++    final eyeY = head.dy + headR * 0.05;
++    for (final side in [-1.0, 1.0]) {
++      final c = Offset(head.dx + side * headR * 0.4, eyeY);
++      canvas.drawCircle(
++        c,
++        headR * 0.34,
++        Paint()..color = kind.eyes.withValues(alpha: 0.28 * a),
++      );
++      canvas.drawCircle(
++        c,
++        headR * 0.18,
++        Paint()..color = kind.eyes.withValues(alpha: a),
++      );
++    }
++
++    // Boca abierta con dientes.
++    final mouth = Rect.fromCenter(
++      center: Offset(head.dx, head.dy + headR * 0.55),
++      width: headR * 0.9,
++      height: headR * 0.32,
++    );
++    canvas.drawRRect(
++      RRect.fromRectAndRadius(mouth, Radius.circular(headR * 0.1)),
++      Paint()..color = const Color(0xFF2A0C0C).withValues(alpha: a),
++    );
++    final tooth = Paint()..color = const Color(0xFFF2EFE0).withValues(alpha: a);
++    for (var i = 0; i < 3; i++) {
++      canvas.drawRect(
++        Rect.fromLTWH(
++          mouth.left + mouth.width * (0.12 + 0.3 * i),
++          mouth.top,
++          mouth.width * 0.16,
++          mouth.height * 0.4,
++        ),
++        tooth,
++      );
++    }
++
++    canvas.drawRRect(
++      RRect.fromRectAndRadius(torso, Radius.circular(torsoW * 0.18)),
++      Paint()
++        ..color = const Color(0xFF1B2233).withValues(alpha: 0.45 * a)
++        ..style = PaintingStyle.stroke
++        ..strokeWidth = 1.2,
++    );
++  }
++}
+diff --git a/endless_runner/test/coins_powerups_test.dart b/endless_runner/test/coins_powerups_test.dart
+index e6e1fc5..597dd08 100644
+--- a/endless_runner/test/coins_powerups_test.dart
++++ b/endless_runner/test/coins_powerups_test.dart
+@@ -284,7 +284,7 @@ void main() {
+   testWidgets('cada moneda recogida suma un diamante', (tester) async {
+     final gameState = GameState()
+       ..lives.value = 1000000; // invulnerable: el test mide la recolección
+-    final game = RunnerGame(gameState: gameState, hordeEnabled: false);
++    final game = RunnerGame(gameState: gameState, hordeEnabled: false, zombiesEnabled: false);
+     await tester.pumpWidget(GameWidget(game: game));
+ 
+     final start = gameState.diamonds.value;
+@@ -320,7 +320,7 @@ void main() {
+   testWidgets('sin imán no se recoge el carril vecino; con imán sí',
+       (tester) async {
+     final gameState = GameState()..lives.value = 1000000;
+-    final game = RunnerGame(gameState: gameState, hordeEnabled: false);
++    final game = RunnerGame(gameState: gameState, hordeEnabled: false, zombiesEnabled: false);
+     await tester.pumpWidget(GameWidget(game: game));
+     expect(game.player.lane, 0);
+ 
+@@ -366,7 +366,7 @@ void main() {
+       (tester) async {
+     final gameState = GameState()
+       ..lives.value = 1000000; // invulnerable: acá solo se mide el spawn
+-    final game = RunnerGame(gameState: gameState, hordeEnabled: false);
++    final game = RunnerGame(gameState: gameState, hordeEnabled: false, zombiesEnabled: false);
+     await tester.pumpWidget(GameWidget(game: game));
+ 
+     var sawPattern = false;
+@@ -405,7 +405,7 @@ void main() {
+   // -------------------------------------------------------------------------
+   testWidgets('el power-up suelto se recoge al tocarlo', (tester) async {
+     final gameState = GameState()..lives.value = 1000000;
+-    final game = RunnerGame(gameState: gameState, hordeEnabled: false);
++    final game = RunnerGame(gameState: gameState, hordeEnabled: false, zombiesEnabled: false);
+     await tester.pumpWidget(GameWidget(game: game));
+ 
+     final item = game.spawnPowerUp(
+diff --git a/endless_runner/test/gameplay_preview_test.dart b/endless_runner/test/gameplay_preview_test.dart
+index b411b91..6f20986 100644
+--- a/endless_runner/test/gameplay_preview_test.dart
++++ b/endless_runner/test/gameplay_preview_test.dart
+@@ -23,7 +23,7 @@ void main() {
+       final gameState = GameState()
+         ..lives.value = 1000000 // invulnerable: el preview solo dibuja
+         ..themeMode.value = dark ? ThemeMode.dark : ThemeMode.light;
+-      final game = RunnerGame(gameState: gameState, hordeEnabled: false);
++      final game = RunnerGame(gameState: gameState, hordeEnabled: false, zombiesEnabled: false);
+       await tester.pumpWidget(GameWidget(game: game));
+ 
+       // Escudo y multiplicador desde el arranque: en el HUD aparecen con sus
+diff --git a/endless_runner/test/gameplay_render_test.dart b/endless_runner/test/gameplay_render_test.dart
+index b1ee03c..938cce6 100644
+--- a/endless_runner/test/gameplay_render_test.dart
++++ b/endless_runner/test/gameplay_render_test.dart
+@@ -84,7 +84,7 @@ void main() {
+     final gameState = GameState()
+       ..lives.value = 1000000 // invulnerable: acá solo se mide el dibujo
+       ..themeMode.value = ThemeMode.dark;
+-    final game = RunnerGame(gameState: gameState, hordeEnabled: false);
++    final game = RunnerGame(gameState: gameState, hordeEnabled: false, zombiesEnabled: false);
+     await tester.pumpWidget(GameWidget(game: game));
+ 
+     // Los tres patrones más representativos, cada uno en su zona del corredor.
+@@ -191,7 +191,7 @@ void main() {
+     final gameState = GameState()
+       ..lives.value = 1000000
+       ..themeMode.value = ThemeMode.dark;
+-    final game = RunnerGame(gameState: gameState, hordeEnabled: false);
++    final game = RunnerGame(gameState: gameState, hordeEnabled: false, zombiesEnabled: false);
+     await tester.pumpWidget(GameWidget(game: game));
+     for (var i = 0; i < 30; i++) {
+       game.powerUps.grantInvulnerability(); // sin golpes: aísla la sacudida
+diff --git a/endless_runner/test/gameplay_test.dart b/endless_runner/test/gameplay_test.dart
+index 3722114..717fc70 100644
+--- a/endless_runner/test/gameplay_test.dart
++++ b/endless_runner/test/gameplay_test.dart
+@@ -300,7 +300,7 @@ void main() {
+       (tester) async {
+     final gameState = GameState()
+       ..lives.value = 1000000; // invulnerable: el test mide el spawn
+-    final game = RunnerGame(gameState: gameState, hordeEnabled: false);
++    final game = RunnerGame(gameState: gameState, hordeEnabled: false, zombiesEnabled: false);
+     await tester.pumpWidget(GameWidget(game: game));
+ 
+     for (var i = 0; i < 3000; i++) {
+diff --git a/endless_runner/test/horde_test.dart b/endless_runner/test/horde_test.dart
+index 19b17f6..5d84046 100644
+--- a/endless_runner/test/horde_test.dart
++++ b/endless_runner/test/horde_test.dart
+@@ -169,7 +169,7 @@ void main() {
+     testWidgets('con la horda apagada el corredor no muere por ella',
+         (tester) async {
+       final gameState = GameState();
+-      final game = RunnerGame(gameState: gameState, hordeEnabled: false);
++      final game = RunnerGame(gameState: gameState, hordeEnabled: false, zombiesEnabled: false);
+       await tester.pumpWidget(GameWidget(game: game));
+       await tester.pump(const Duration(milliseconds: 16));
+ 
+diff --git a/endless_runner/test/zombie_test.dart b/endless_runner/test/zombie_test.dart
+new file mode 100644
+index 0000000..b89e8e6
+--- /dev/null
++++ b/endless_runner/test/zombie_test.dart
+@@ -0,0 +1,440 @@
++import 'dart:math';
++import 'dart:typed_data';
++import 'dart:ui' as ui;
++
++import 'package:flame/game.dart';
++import 'package:flutter/material.dart';
++import 'package:flutter_test/flutter_test.dart';
++
++import 'package:runner_flutter/game/obstacle_component.dart';
++import 'package:runner_flutter/game/perspective.dart';
++import 'package:runner_flutter/game/player_component.dart';
++import 'package:runner_flutter/game/runner_game.dart';
++import 'package:runner_flutter/game/zombie_obstacle.dart';
++import 'package:runner_flutter/state/game_state.dart';
++
++/// Geometría fija de las pruebas unitarias (480x760, como el preview).
++const _p = Perspective(width: 480, height: 760);
++
++PlayerComponent _player() => PlayerComponent(
++      startPosition: Vector2(_p.width * 0.5, _p.height * 0.86),
++      perspective: _p,
++    );
++
++/// Jugador con [seconds] de salto en las piernas (0.30 s ≈ techo, ~60 px).
++PlayerComponent _jumping({double seconds = 0.15}) {
++  final player = _player();
++  player.jump();
++  const step = 1 / 120;
++  for (var t = 0.0; t < seconds; t += step) {
++    player.update(step);
++  }
++  return player;
++}
++
++ZombieObstacle _zombie(
++  ZombieKind kind, {
++  double lane = 0,
++  double difficulty = 0,
++  double speed = 0,
++  double? phase,
++}) =>
++    ZombieObstacle(
++      lane: lane,
++      speed: speed,
++      perspective: _p,
++      kind: kind,
++      difficulty: difficulty,
++      phase: phase,
++      random: Random(7),
++    );
++
++/// Zombi en la fila del jugador (patrulla centrada y a mitad de tramo: queda
++/// en el carril 0).
++ZombieObstacle _atRow(
++  PlayerComponent player,
++  ZombieKind kind, {
++  double lane = 0,
++  double difficulty = 0,
++}) {
++  final zombie = _zombie(kind, lane: lane, difficulty: difficulty, phase: 0.5);
++  zombie.baseY = player.groundFeetY;
++  zombie.syncGeometry();
++  return zombie;
++}
++
++/// Avanza [zombie] [seconds] en pasos de 1/60 s.
++void _run(ZombieObstacle zombie, double seconds) {
++  const step = 1 / 60;
++  for (var t = 0.0; t < seconds; t += step) {
++    zombie.update(step);
++  }
++}
++
++void main() {
++  TestWidgetsFlutterBinding.ensureInitialized();
++
++  group('ZombieKind: los tres tipos se distinguen', () {
++    test('lento > normal > rápido en tamaño; al revés en velocidad', () {
++      expect(ZombieKind.slow.width, greaterThan(ZombieKind.normal.width));
++      expect(ZombieKind.normal.width, greaterThan(ZombieKind.fast.width));
++      expect(ZombieKind.slow.height, greaterThan(ZombieKind.normal.height));
++      expect(ZombieKind.normal.height, greaterThan(ZombieKind.fast.height));
++
++      expect(
++        ZombieKind.slow.lateralSpeed,
++        lessThan(ZombieKind.normal.lateralSpeed),
++      );
++      expect(
++        ZombieKind.normal.lateralSpeed,
++        lessThan(ZombieKind.fast.lateralSpeed),
++      );
++    });
++
++    test('cada tipo tiene su propio color de piel, ropa y aro', () {
++      expect(ZombieKind.values.map((k) => k.skin).toSet(), hasLength(3));
++      expect(ZombieKind.values.map((k) => k.clothes).toSet(), hasLength(3));
++      expect(ZombieKind.values.map((k) => k.ring).toSet(), hasLength(3));
++    });
++
++    test('lento y normal patrullan; el rápido persigue', () {
++      expect(ZombieKind.slow.behavior, ZombieBehavior.patrol);
++      expect(ZombieKind.normal.behavior, ZombieBehavior.patrol);
++      expect(ZombieKind.fast.behavior, ZombieBehavior.chase);
++    });
++
++    test('roll: sin rápidos antes de fastUnlock', () {
++      for (var i = 0; i < 100; i++) {
++        expect(
++          ZombieKind.roll(ZombieKind.fastUnlock - 0.01, i / 100),
++          isNot(ZombieKind.fast),
++        );
++      }
++      expect(ZombieKind.roll(0, 0.3), ZombieKind.slow);
++      expect(ZombieKind.roll(0, 0.9), ZombieKind.normal);
++    });
++
++    test('roll: con dificultad máxima salen los tres, y más rápidos', () {
++      expect(ZombieKind.roll(1, 0.0), ZombieKind.fast);
++      expect(ZombieKind.roll(1, 0.6), ZombieKind.slow);
++      expect(ZombieKind.roll(1, 0.95), ZombieKind.normal);
++
++      int fastCount(double difficulty) => [
++            for (var i = 0; i < 1000; i++) i / 1000
++          ].where((r) => ZombieKind.roll(difficulty, r) == ZombieKind.fast).length;
++      expect(fastCount(1.0), greaterThan(fastCount(0.4)));
++    });
++  });
++
++  group('ZombieObstacle: dificultad', () {
++    test('la dificultad acelera y agranda al zombi', () {
++      final easy = _zombie(ZombieKind.normal, difficulty: 0);
++      final hard = _zombie(ZombieKind.normal, difficulty: 1);
++
++      expect(easy.lateralSpeed, ZombieKind.normal.lateralSpeed);
++      expect(
++        hard.lateralSpeed,
++        closeTo(
++          ZombieKind.normal.lateralSpeed * (1 + ZombieObstacle.speedGain),
++          1e-9,
++        ),
++      );
++
++      final player = _player();
++      final a = _atRow(player, ZombieKind.normal, difficulty: 0);
++      final b = _atRow(player, ZombieKind.normal, difficulty: 1);
++      expect(b.size.x, greaterThan(a.size.x));
++      expect(b.size.y, greaterThan(a.size.y));
++    });
++
++    test('la dificultad se acota a 0..1', () {
++      final zombie = _zombie(ZombieKind.fast, difficulty: 5);
++      expect(
++        zombie.lateralSpeed,
++        closeTo(ZombieKind.fast.lateralSpeed * (1 + ZombieObstacle.speedGain),
++            1e-9),
++      );
++      expect(zombie.sizeFactor, closeTo(1 + ZombieObstacle.sizeGain, 1e-9));
++    });
++  });
++
++  group('ZombieObstacle: patrulla', () {
++    test('el tramo depende del tipo y no sale del corredor', () {
++      final left = _zombie(ZombieKind.slow, lane: -0.5);
++      expect(left.patrolMin, closeTo(-1, 1e-9));
++      expect(left.patrolMax, closeTo(0, 1e-9));
++
++      final right = _zombie(ZombieKind.slow, lane: 0.5);
++      expect(right.patrolMin, closeTo(0, 1e-9));
++      expect(right.patrolMax, closeTo(1, 1e-9));
++
++      final wide = _zombie(ZombieKind.normal);
++      expect(wide.patrolMin, closeTo(-1, 1e-9));
++      expect(wide.patrolMax, closeTo(1, 1e-9));
++    });
++
++    for (final kind in [ZombieKind.slow, ZombieKind.normal]) {
++      test('${kind.name}: va y vuelve entre los extremos sin pasarse', () {
++        final zombie = _zombie(kind, lane: kind == ZombieKind.slow ? -0.5 : 0);
++        var lo = double.infinity;
++        var hi = -double.infinity;
++        var flips = 0;
++        var lastDir = zombie.direction;
++
++        const step = 1 / 60;
++        for (var t = 0.0; t < 20; t += step) {
++          zombie.update(step);
++          lo = min(lo, zombie.lane);
++          hi = max(hi, zombie.lane);
++          if (zombie.direction != lastDir) {
++            flips++;
++            lastDir = zombie.direction;
++          }
++          expect(zombie.lane, inInclusiveRange(zombie.patrolMin, zombie.patrolMax));
++        }
++
++        expect(lo, closeTo(zombie.patrolMin, 1e-9));
++        expect(hi, closeTo(zombie.patrolMax, 1e-9));
++        expect(flips, greaterThanOrEqualTo(2), reason: 'ida y vuelta');
++      });
++    }
++
++    test('el lento recorre menos que el normal en el mismo tiempo', () {
++      final slow = _zombie(ZombieKind.slow, lane: -0.5, phase: 0);
++      final normal = _zombie(ZombieKind.normal, phase: 0);
++      final slowStart = slow.lane;
++      final normalStart = normal.lane;
++      // La patrulla arranca hacia un lado cualquiera: se mide la distancia
++      // total recorrida en 1 s sin llegar a los extremos.
++      var slowPath = 0.0;
++      var normalPath = 0.0;
++      var slowLast = slowStart;
++      var normalLast = normalStart;
++      const step = 1 / 60;
++      for (var t = 0.0; t < 0.8; t += step) {
++        slow.update(step);
++        normal.update(step);
++        slowPath += (slow.lane - slowLast).abs();
++        normalPath += (normal.lane - normalLast).abs();
++        slowLast = slow.lane;
++        normalLast = normal.lane;
++      }
++      expect(normalPath, greaterThan(slowPath));
++    });
++
++    test('baja por el corredor a la velocidad del piso', () {
++      final zombie = _zombie(ZombieKind.normal, speed: 300);
++      final before = zombie.baseY;
++      _run(zombie, 0.5);
++      expect(zombie.baseY, greaterThan(before));
++    });
++  });
++
++  group('ZombieObstacle: persecución', () {
++    test('sigue al jugador antes de lockT y después fija su carril', () {
++      final zombie = _zombie(ZombieKind.fast, lane: 1)..targetLane = -1;
++      expect(zombie.t, lessThan(ZombieObstacle.lockT));
++
++      _run(zombie, 3);
++      expect(zombie.lane, closeTo(-1, 1e-9), reason: 'llegó al carril del jugador');
++      expect(zombie.locked, isFalse);
++
++      // Cruza la profundidad de compromiso.
++      zombie.baseY = _p.yAtT(ZombieObstacle.lockT + 0.05);
++      _run(zombie, 0.1);
++      expect(zombie.locked, isTrue);
++
++      // El jugador se cambia de carril: ya no lo sigue.
++      zombie.targetLane = 1;
++      _run(zombie, 1);
++      expect(zombie.lane, closeTo(-1, 1e-9));
++    });
++
++    test('el persecutor no se pasa del carril objetivo', () {
++      final zombie = _zombie(ZombieKind.fast, lane: 1)..targetLane = 0;
++      var minLane = double.infinity;
++      const step = 1 / 60;
++      for (var t = 0.0; t < 2; t += step) {
++        zombie.update(step);
++        minLane = min(minLane, zombie.lane);
++      }
++      expect(minLane, greaterThanOrEqualTo(-1e-9));
++      expect(zombie.lane, closeTo(0, 1e-9));
++    });
++
++    test('tras comprometerse queda tiempo de sobra para esquivar', () {
++      final player = _player();
++      // Distancia en pantalla entre la profundidad de compromiso y el
++      // jugador, recorrida a 620 px/s (la velocidad máxima que contempla el
++      // diseño de los obstáculos).
++      final px = player.groundFeetY - _p.yAtT(ZombieObstacle.lockT);
++      final reaction = px / 620;
++      final laneChange = 1 / PlayerComponent.laneSpeed;
++      expect(reaction, greaterThan(2 * laneChange));
++    });
++  });
++
++  group('ZombieObstacle: colisión', () {
++    for (final kind in ZombieKind.values) {
++      test('${kind.name}: choca en el mismo carril y no en otro', () {
++        final player = _player();
++        expect(_atRow(player, kind).collidesWith(player), isTrue);
++
++        // En el carril de la derecha (el jugador está en el central): no.
++        final side = _zombie(kind, lane: 1, phase: 1.0);
++        side.baseY = player.groundFeetY;
++        side.syncGeometry();
++        expect(side.lane, closeTo(1, 1e-9));
++        expect(side.collidesWith(player), isFalse);
++
++        final far = _atRow(player, kind)..baseY = player.groundFeetY - 200;
++        far.syncGeometry();
++        expect(far.collidesWith(player), isFalse);
++      });
++
++      test('${kind.name}: no se salta ni se pasa agachado', () {
++        final peak = _jumping(seconds: 0.30);
++        expect(peak.jumpY, greaterThan(50), reason: 'cerca del techo del salto');
++        expect(_atRow(peak, kind).collidesWith(peak), isTrue);
++
++        final rolling = _player()..roll();
++        expect(_atRow(rolling, kind).collidesWith(rolling), isTrue);
++      });
++    }
++  });
++
++  group('ZombieObstacle: dibujo', () {
++    testWidgets('cada tipo dibuja y el lento ocupa más que el normal y el rápido',
++        (tester) async {
++      final player = _player();
++      final counts = <ZombieKind, int>{};
++
++      await tester.runAsync(() async {
++        for (final kind in ZombieKind.values) {
++          final zombie = _atRow(player, kind);
++          final recorder = ui.PictureRecorder();
++          final canvas = Canvas(recorder);
++          canvas.translate(40, 70);
++          zombie.render(canvas);
++          final image = await recorder.endRecording().toImage(160, 200);
++          final bytes = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
++          final data = bytes!.buffer.asUint8List();
++          counts[kind] = _opaquePixels(data);
++        }
++      });
++
++      for (final kind in ZombieKind.values) {
++        expect(counts[kind], greaterThan(200), reason: '${kind.name} se dibuja');
++      }
++      expect(counts[ZombieKind.slow]!, greaterThan(counts[ZombieKind.normal]!));
++      expect(counts[ZombieKind.normal]!, greaterThan(counts[ZombieKind.fast]!));
++    });
++
++    test('recién nacido (alpha 0) no dibuja nada y no falla', () {
++      final zombie = _zombie(ZombieKind.fast); // nace en spawnT: alpha 0
++      expect(zombie.alpha, 0);
++      zombie.render(Canvas(ui.PictureRecorder()));
++    });
++  });
++
++  group('RunnerGame con zombis', () {
++    testWidgets('aparecen solos pasado el primer tramo de la partida',
++        (tester) async {
++      final gameState = GameState()..lives.value = 1000000;
++      final game = RunnerGame(gameState: gameState, hordeEnabled: false);
++      await tester.pumpWidget(GameWidget(game: game));
++
++      var sawZombie = false;
++      for (var i = 0; i < 900 && !sawZombie; i++) {
++        await tester.pump(const Duration(milliseconds: 16));
++        if (i < 400) {
++          expect(game.zombies, isEmpty, reason: 'no hay zombis en los primeros ~6 s');
++        }
++        sawZombie = game.zombies.isNotEmpty;
++      }
++      expect(sawZombie, isTrue);
++    });
++
++    testWidgets('un zombi nunca llega pegado a un obstáculo fijo',
++        (tester) async {
++      final gameState = GameState()..lives.value = 1000000;
++      final game = RunnerGame(gameState: gameState, hordeEnabled: false);
++      await tester.pumpWidget(GameWidget(game: game));
++
++      var sawZombie = false;
++      for (var i = 0; i < 3000; i++) {
++        await tester.pump(const Duration(milliseconds: 16));
++        for (final zombie in game.zombies) {
++          sawZombie = true;
++          for (final obstacle in game.children.whereType<ObstacleComponent>()) {
++            expect((obstacle.baseY - zombie.baseY).abs(), greaterThan(60));
++          }
++        }
++      }
++      expect(sawZombie, isTrue);
++      expect(gameState.isGameOver.value, isFalse);
++    });
++
++    testWidgets('tocar un zombi cuesta una vida y no corta la partida',
++        (tester) async {
++      final state = GameState();
++      expect(state.lives.value, GameState.maxLives);
++      final game = RunnerGame(gameState: state, hordeEnabled: false);
++      await tester.pumpWidget(GameWidget(game: game));
++      await tester.pump(const Duration(milliseconds: 16));
++
++      final zombie = game.spawnZombie(kind: ZombieKind.normal);
++      zombie.lane = game.player.lanePos;
++      zombie.baseY = game.player.groundFeetY;
++      zombie.syncGeometry();
++      await tester.pump(const Duration(milliseconds: 16));
++
++      expect(state.lives.value, GameState.maxLives - 1);
++      expect(state.isGameOver.value, isFalse);
++      expect(game.powerUps.isInvulnerable, isTrue, reason: 'queda un respiro');
++    });
++
++    testWidgets('con una sola vida, el zombi mata', (tester) async {
++      final state = GameState()..lives.value = 1;
++      final game = RunnerGame(gameState: state, hordeEnabled: false);
++      await tester.pumpWidget(GameWidget(game: game));
++      await tester.pump(const Duration(milliseconds: 16));
++
++      final zombie = game.spawnZombie(kind: ZombieKind.normal);
++      zombie.lane = game.player.lanePos;
++      zombie.baseY = game.player.groundFeetY;
++      zombie.syncGeometry();
++      await tester.pump(const Duration(milliseconds: 16));
++
++      expect(state.isGameOver.value, isTrue);
++    });
++
++    testWidgets('reiniciar limpia los zombis y vuelve a esperar el primero',
++        (tester) async {
++      final game = RunnerGame(
++        gameState: GameState(),
++        hordeEnabled: false,
++        zombiesEnabled: false,
++      );
++      await tester.pumpWidget(GameWidget(game: game));
++      await tester.pump(const Duration(milliseconds: 16));
++
++      game.spawnZombie(kind: ZombieKind.slow);
++      game.spawnZombie(kind: ZombieKind.fast);
++      expect(game.zombies, hasLength(2));
++
++      game.restartRun();
++      await tester.pump(const Duration(milliseconds: 16));
++      expect(game.zombies, isEmpty);
++    });
++  });
++}
++
++/// Píxeles con alfa > 0 en un buffer RGBA.
++int _opaquePixels(Uint8List rgba) {
++  var n = 0;
++  for (var i = 3; i < rgba.length; i += 4) {
++    if (rgba[i] > 0) n++;
++  }
++  return n;
++}

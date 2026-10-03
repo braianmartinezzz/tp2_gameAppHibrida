@@ -300,7 +300,7 @@ void main() {
       (tester) async {
     final gameState = GameState()
       ..lives.value = 1000000; // invulnerable: el test mide el spawn
-    final game = RunnerGame(gameState: gameState);
+    final game = RunnerGame(gameState: gameState, hordeEnabled: false, zombiesEnabled: false);
     await tester.pumpWidget(GameWidget(game: game));
 
     for (var i = 0; i < 3000; i++) {

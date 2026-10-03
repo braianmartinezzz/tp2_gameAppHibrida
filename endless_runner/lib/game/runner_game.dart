@@ -4,6 +4,7 @@ import 'package:flame/events.dart';
 import 'package:flutter/material.dart';
 import '../state/game_state.dart';
 import '../state/rewards.dart';
+import 'chase_horde.dart';
 import 'coin_component.dart';
 import 'depth_component.dart';
 import 'juice.dart';
@@ -13,15 +14,32 @@ import 'obstacle_component.dart';
 import 'perspective.dart';
 import 'power_up_component.dart';
 import 'power_up_state.dart';
+import 'zombie_obstacle.dart';
 
 /// Acciones que el jugador dispara con un gesto. El tutorial las escucha para
 /// saber si el usuario hizo lo que se le pidió.
 enum RunnerAction { moveLeft, moveRight, jump, roll }
 
 class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
-  RunnerGame({required this.gameState});
+  RunnerGame({
+    required this.gameState,
+    this.hordeEnabled = true,
+    this.zombiesEnabled = true,
+  });
 
   final GameState gameState;
+
+  /// Horda de zombies que persigue al corredor desde atrás: si lo alcanza, es
+  /// Game Over. Los tests que miden otra cosa (spawn, dibujo de recompensas)
+  /// la apagan para que el corredor sin input no muera por la horda.
+  bool hordeEnabled;
+
+  /// Estado de la horda (expuesto para tests y previews).
+  final ChaseHorde horde = ChaseHorde();
+
+  /// Zombis móviles que aparecen como obstáculos (patrullan o persiguen al
+  /// jugador). Los tests que miden otra cosa los apagan.
+  bool zombiesEnabled;
 
   /// Se llama cada vez que un gesto produce una acción efectiva del corredor
   /// (un salto en el aire, que no hace nada, no cuenta).
@@ -81,12 +99,31 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
   double _deathTimer = 0;
 
   final List<ObstacleComponent> _obstacles = [];
+  final List<ZombieObstacle> _zombies = [];
   final List<CoinComponent> _coins = [];
   final List<PowerUpComponent> _powerUpItems = [];
   final Random _rng = Random();
   final MapRenderer _map = MapRenderer();
 
   double _spawnCooldown = 0;
+
+  // Zombis: primer zombi a los 8 s; después la cadencia sube con la dificultad.
+  double _zombieCooldown = _firstZombieDelay;
+  static const double _firstZombieDelay = 8.0;
+
+  /// Segundos de separación mínima entre un zombi y el obstáculo fijo más
+  /// cercano (en cualquier orden). Todos bajan a la misma velocidad, así que
+  /// esa separación en el spawn es la que llega al jugador: nunca tiene que
+  /// esquivar un zombi y un obstáculo a la vez.
+  static const double _zombieClearance = 1.0;
+  double _sinceObstacleSpawn = 999;
+  double _sinceZombieSpawn = 999;
+
+  /// Dificultad 0..1 para zombis: llega al máximo a los 90 s de partida.
+  double get zombieDifficulty => (_elapsed / 90).clamp(0.0, 1.0).toDouble();
+
+  /// Zombis vivos (expuesto para tests).
+  List<ZombieObstacle> get zombies => List.unmodifiable(_zombies);
   double _coinCooldown = 2.0;
   double _powerUpCooldown = 10.0;
   double _difficultySpeed =
@@ -114,6 +151,9 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     }
     for (final item in _powerUpItems) {
       item.perspective = _perspective;
+    }
+    for (final zombie in _zombies) {
+      zombie.perspective = _perspective;
     }
     if (_hasPlayer) {
       // Al redimensionar solo se mueve la fila de suelo: carril y salto
@@ -203,10 +243,30 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     // carrera crece junto con la dificultad.
     _map.update(dt, _difficultySpeed, _perspective);
 
+    _sinceObstacleSpawn += dt;
+    _sinceZombieSpawn += dt;
+
     _spawnCooldown -= dt;
     if (_spawnCooldown <= 0) {
-      _spawnObstacle();
-      _spawnCooldown = max(0.45, 1.1 - _elapsed * 0.01);
+      if (zombiesEnabled && _sinceZombieSpawn < _zombieClearance) {
+        // Acaba de nacer un zombi: el obstáculo espera para no apelotonarse.
+        _spawnCooldown = _zombieClearance - _sinceZombieSpawn;
+      } else {
+        _spawnObstacle();
+        _spawnCooldown = max(0.45, 1.1 - _elapsed * 0.01);
+      }
+    }
+
+    if (zombiesEnabled) {
+      _zombieCooldown -= dt;
+      if (_zombieCooldown <= 0) {
+        if (_sinceObstacleSpawn < _zombieClearance) {
+          _zombieCooldown = _zombieClearance - _sinceObstacleSpawn;
+        } else {
+          spawnZombie();
+          _zombieCooldown = _nextZombieDelay();
+        }
+      }
     }
 
     // Tandas de monedas e ítems de power-up, con su propia cadencia.
@@ -240,10 +300,28 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
       }
     }
 
+    for (final zombie in List<ZombieObstacle>.from(_zombies)) {
+      zombie.speed = _difficultySpeed;
+      zombie.targetLane = _player.lanePos;
+      // Misma regla que los obstáculos: un solo golpe por cruce y nada
+      // mientras dure la invulnerabilidad.
+      final touching =
+          !powerUps.isInvulnerable && zombie.collidesWith(_player);
+      if (touching && !zombie.wasTouching) {
+        _onCollision();
+      }
+      zombie.wasTouching = touching;
+      if (zombie.offScreen) {
+        zombie.removeFromParent();
+        _zombies.remove(zombie);
+      }
+    }
+
     for (final coin in List<CoinComponent>.from(_coins)) {
       coin.speed = _difficultySpeed;
       if (coin.collidesWith(_player)) {
         gameState.collectDiamond(coin.value);
+        if (hordeEnabled) horde.relieve(coin.value);
         juice.coinPickup(_centerOf(coin), value: coin.value);
         _removeCoin(coin);
       } else if (coin.offScreen) {
@@ -267,7 +345,31 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
       }
     }
 
+    if (hordeEnabled) _updateHorde(dt);
+
     juice.update(dt);
+  }
+
+  /// Avanza la horda y termina la partida si alcanzó al corredor.
+  ///
+  /// Cada vez que el jugador sobrevive un nivel más, la horda acelera: se
+  /// avisa con un destello rojo y un temblor corto.
+  void _updateHorde(double dt) {
+    if (gameState.isGameOver.value) return;
+
+    final leveledUp = horde.update(dt);
+    if (leveledUp) {
+      juice.flash(Juice.hitColor, 0.3, duration: 0.4);
+      juice.addShake(3);
+    }
+
+    if (horde.caught) {
+      // Mismo camino que el golpe mortal de un obstáculo: congela el
+      // resultado, actualiza el récord y deja correr el juice de la muerte.
+      gameState.finishRun();
+      juice.death(Offset(_player.position.x, _player.position.y));
+      _deathTimer = _deathGrace;
+    }
   }
 
   /// Centro de pantalla de un actor del corredor: ahí nace su feedback.
@@ -294,6 +396,50 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     );
     _obstacles.add(obstacle);
     add(obstacle);
+    _sinceObstacleSpawn = 0;
+  }
+
+  // --- Zombis móviles ----------------------------------------------------------
+
+  /// Segundos hasta el próximo zombi: de ~6 s al principio a ~2,8 s con la
+  /// dificultad máxima, más un poco de azar.
+  double _nextZombieDelay() =>
+      6.0 - 3.2 * zombieDifficulty + _rng.nextDouble() * 1.5;
+
+  /// Carril de base de un zombi nuevo según su tipo.
+  double _zombieHomeLane(ZombieKind kind) {
+    switch (kind) {
+      case ZombieKind.slow:
+        return _rng.nextBool() ? -0.5 : 0.5;
+      case ZombieKind.normal:
+        return 0.0;
+      case ZombieKind.fast:
+        return (_rng.nextInt(3) - 1).toDouble();
+    }
+  }
+
+  /// Genera un zombi y lo suma a la partida.
+  ///
+  /// [kind] y [lane] son para tests y guiones; en el juego el tipo sale de la
+  /// dificultad ([ZombieKind.roll]) y el carril de base depende del tipo: el
+  /// lento patrulla un tramo de dos carriles, el normal todo el corredor y el
+  /// rápido arranca en un carril cualquiera y después persigue al jugador.
+  ZombieObstacle spawnZombie({ZombieKind? kind, double? lane}) {
+    final difficulty = zombieDifficulty;
+    final chosen = kind ?? ZombieKind.roll(difficulty, _rng.nextDouble());
+    final home = lane ?? _zombieHomeLane(chosen);
+    final zombie = ZombieObstacle(
+      lane: home,
+      speed: _difficultySpeed,
+      perspective: _perspective,
+      kind: chosen,
+      difficulty: difficulty,
+      random: _rng,
+    )..targetLane = _player.lanePos;
+    _zombies.add(zombie);
+    add(zombie);
+    _sinceZombieSpawn = 0;
+    return zombie;
   }
 
   /// Carril para el próximo obstáculo, mirando los dos más cercanos que aún no
@@ -367,6 +513,8 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     if (gameState.loseLife() > 0) {
       powerUps.grantInvulnerability();
       juice.hitPaid(at);
+      // Tropezar deja a la horda más cerca (el escudo no: ya absorbió).
+      if (hordeEnabled) horde.stumble();
     } else {
       // Única puerta de entrada al fin de partida: congela el resultado,
       // actualiza el récord y deja isGameOver en true para el overlay.
@@ -629,6 +777,11 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
       dark: gameState.themeMode.value == ThemeMode.dark,
       playerX: _player.position.x,
     );
+    // La horda va debajo del corredor y los obstáculos (ellos se leen
+    // primero), pero encima del mapa. No hay horda en el tutorial.
+    if (hordeEnabled && !tutorialActive) {
+      horde.render(canvas, _perspective, playerFeetY: _player.groundFeetY);
+    }
     super.render(canvas);
     juice.render(canvas);
 
@@ -720,6 +873,13 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
       obstacle.removeFromParent();
     }
     _obstacles.clear();
+    for (final zombie in _zombies) {
+      zombie.removeFromParent();
+    }
+    _zombies.clear();
+    _zombieCooldown = _firstZombieDelay;
+    _sinceObstacleSpawn = 999;
+    _sinceZombieSpawn = 999;
     for (final coin in _coins) {
       coin.removeFromParent();
     }
@@ -737,6 +897,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     _elapsed = 0;
     _difficultySpeed = 260;
     _scoreCarry = 0;
+    horde.reset();
     gameState.resetRun();
     _player.resetTo(
       startPosition: Vector2(size.x / 2, size.y * 0.86),

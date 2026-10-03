@@ -23,7 +23,7 @@ void main() {
       final gameState = GameState()
         ..lives.value = 1000000 // invulnerable: el preview solo dibuja
         ..themeMode.value = dark ? ThemeMode.dark : ThemeMode.light;
-      final game = RunnerGame(gameState: gameState);
+      final game = RunnerGame(gameState: gameState, hordeEnabled: false, zombiesEnabled: false);
       await tester.pumpWidget(GameWidget(game: game));
 
       // Escudo y multiplicador desde el arranque: en el HUD aparecen con sus
