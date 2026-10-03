@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../state/game_state.dart';
+import '../theme/app_theme.dart';
 
 /// Resumen de la partida terminada (Fase 4): puntaje final, récord con su
 /// medalla de "nuevo récord", diamantes ganados en la corrida y el botón para
@@ -34,96 +35,110 @@ class GameOverOverlay extends StatelessWidget {
     final runDiamonds = gameState.runDiamonds.value;
 
     return Container(
-      color: Colors.black.withValues(alpha: 0.55),
+      color: const Color(0xFF05060F).withValues(alpha: 0.62),
       alignment: Alignment.center,
-      // Entrada: aparece con fundido y un rebote chiquito desde el centro.
-      child: TweenAnimationBuilder<double>(
-        tween: Tween(begin: 0, end: 1),
-        duration: const Duration(milliseconds: 240),
-        curve: Curves.easeOutBack,
-        builder: (context, t, child) => Opacity(
-          opacity: t.clamp(0.0, 1.0),
-          child: Transform.scale(scale: 0.9 + 0.1 * t, child: child),
-        ),
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 24),
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 22),
-          decoration: BoxDecoration(
-            color: scheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: scheme.outlineVariant),
-            boxShadow: const [
-              BoxShadow(
-                color: Colors.black54,
-                blurRadius: 24,
-                offset: Offset(0, 10),
-              ),
-            ],
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        // Entrada: aparece con fundido y un rebote chiquito desde el centro.
+        child: TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0, end: 1),
+          duration: const Duration(milliseconds: 320),
+          curve: Curves.easeOutBack,
+          builder: (context, t, child) => Opacity(
+            opacity: t.clamp(0.0, 1.0),
+            child: Transform.scale(scale: 0.85 + 0.15 * t, child: child),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.emoji_events_rounded,
-                size: 36,
-                color: newRecord ? Colors.amber : scheme.primary,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'PARTIDA TERMINADA',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 1.2,
-                    ),
-              ),
-              const SizedBox(height: 16),
-              _ResultRow(label: 'Puntaje', value: '$score', highlight: true),
-              _ResultRow(label: 'Récord', value: '$best'),
-              if (newRecord) ...[
-                const SizedBox(height: 8),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.amber,
-                    borderRadius: BorderRadius.circular(999),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.amber.withValues(alpha: 0.45),
-                        blurRadius: 12,
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 340),
+            margin: const EdgeInsets.symmetric(horizontal: 24),
+            decoration: BoxDecoration(
+              color: scheme.surface,
+              borderRadius: BorderRadius.circular(30),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black54,
+                  blurRadius: 30,
+                  offset: Offset(0, 12),
+                ),
+              ],
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _Banner(newRecord: newRecord),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _StatTile(
+                              label: 'Puntaje',
+                              value: '$score',
+                              big: true,
+                              color: scheme.primary,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _StatTile(
+                              label: 'Récord',
+                              value: '$best',
+                              color: AppColors.goldDeep,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (newRecord) ...[
+                        const SizedBox(height: 12),
+                        const _RecordBadge(),
+                      ],
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.gem.withValues(alpha: 0.16),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.diamond_rounded,
+                              size: 18,
+                              color: AppColors.gemDeep,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Ganaste $runDiamonds diamantes',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.copyWith(fontWeight: FontWeight.w700),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: onRestart,
+                          icon: const Icon(Icons.replay_rounded),
+                          label: const Text('Reintentar'),
+                        ),
                       ),
                     ],
                   ),
-                  child: const Text(
-                    '¡NUEVO RÉCORD!',
-                    style: TextStyle(
-                      color: Color(0xFF3B2C00),
-                      fontSize: 11,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 0.6,
-                    ),
-                  ),
                 ),
               ],
-              const SizedBox(height: 14),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.diamond, size: 16, color: scheme.primary),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Ganaste $runDiamonds diamantes',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              FilledButton.icon(
-                onPressed: onRestart,
-                icon: const Icon(Icons.replay),
-                label: const Text('Reintentar'),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -131,35 +146,178 @@ class GameOverOverlay extends StatelessWidget {
   }
 }
 
-/// Fila del resumen: etiqueta a la izquierda, valor a la derecha.
-class _ResultRow extends StatelessWidget {
-  const _ResultRow({
+/// Cabecera con degradé, trofeo con halo y estrellitas si hubo récord.
+class _Banner extends StatelessWidget {
+  const _Banner({required this.newRecord});
+
+  final bool newRecord;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = newRecord
+        ? const [Color(0xFFFFB020), Color(0xFFFF6B8A)]
+        : const [Color(0xFF6C5CE7), Color(0xFF9B6BFF)];
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: colors,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          if (newRecord) ...const [
+            Positioned(left: 6, top: 4, child: _Sparkle(size: 16)),
+            Positioned(left: 40, top: 40, child: _Sparkle(size: 10)),
+            Positioned(right: 8, top: 0, child: _Sparkle(size: 20)),
+            Positioned(right: 44, top: 44, child: _Sparkle(size: 12)),
+          ],
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 68,
+                height: 68,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withValues(alpha: 0.95),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.white.withValues(alpha: 0.45),
+                      blurRadius: 22,
+                      spreadRadius: 4,
+                    ),
+                  ],
+                ),
+                child: Icon(
+                  Icons.emoji_events_rounded,
+                  size: 40,
+                  color: newRecord ? AppColors.goldDeep : colors.first,
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'PARTIDA TERMINADA',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Sparkle extends StatelessWidget {
+  const _Sparkle({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Icon(
+      Icons.star_rounded,
+      size: size,
+      color: Colors.white.withValues(alpha: 0.85),
+    );
+  }
+}
+
+/// Medalla "¡NUEVO RÉCORD!" con brillo dorado.
+class _RecordBadge extends StatelessWidget {
+  const _RecordBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [AppColors.gold, AppColors.goldDeep],
+        ),
+        borderRadius: BorderRadius.circular(999),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.goldDeep.withValues(alpha: 0.5),
+            blurRadius: 14,
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.auto_awesome_rounded,
+              size: 14, color: AppColors.goldInk),
+          const SizedBox(width: 6),
+          const Text(
+            '¡NUEVO RÉCORD!',
+            style: TextStyle(
+              color: AppColors.goldInk,
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.6,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Mosaico del resumen: etiqueta arriba, valor grande abajo.
+class _StatTile extends StatelessWidget {
+  const _StatTile({
     required this.label,
     required this.value,
-    this.highlight = false,
+    required this.color,
+    this.big = false,
   });
 
   final String label;
   final String value;
+  final Color color;
 
   /// true para el puntaje final, que se muestra más grande.
-  final bool highlight;
+  final bool big;
 
   @override
   Widget build(BuildContext context) {
-    final style = Theme.of(context).textTheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+    final text = Theme.of(context).textTheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.35), width: 1.5),
+      ),
+      child: Column(
         children: [
-          Text(label, style: style.bodyMedium),
-          const SizedBox(width: 20),
           Text(
-            value,
-            style: highlight
-                ? style.headlineSmall?.copyWith(fontWeight: FontWeight.w900)
-                : style.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            label,
+            style: text.labelLarge?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 2),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              style: (big ? text.headlineLarge : text.headlineMedium)?.copyWith(
+                fontWeight: FontWeight.w900,
+              ),
+            ),
           ),
         ],
       ),

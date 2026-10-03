@@ -122,7 +122,19 @@ class ObstacleComponent extends DepthComponent {
       Rect.fromLTWH(0, 0, w, h),
       Radius.circular((h * 0.28).clamp(1.0, 6.0)),
     );
-    canvas.drawRRect(body, Paint()..color = _hazard.withValues(alpha: a));
+    // Relleno con degradé vertical: más claro arriba, da volumen a la valla.
+    canvas.drawRRect(
+      body,
+      Paint()
+        ..shader = LinearGradient(
+          colors: [
+            const Color(0xFFFFD36B).withValues(alpha: a),
+            _hazard.withValues(alpha: a),
+          ],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ).createShader(Rect.fromLTWH(0, 0, w, h)),
+    );
     final dark = Paint()..color = _hazardDark.withValues(alpha: 0.85 * a);
     for (var i = 0; i < 3; i++) {
       canvas.drawRect(
@@ -202,7 +214,21 @@ class ObstacleComponent extends DepthComponent {
       Rect.fromLTWH(0, 0, w, h),
       Radius.circular((w * 0.12).clamp(1.0, 7.0)),
     );
-    canvas.drawRRect(body, Paint()..color = _red.withValues(alpha: a));
+    // Degradé rojo: tapa luminosa arriba y sombra abajo (efecto 3D de caja).
+    canvas.drawRRect(
+      body,
+      Paint()
+        ..shader = LinearGradient(
+          colors: [
+            const Color(0xFFFF8A80).withValues(alpha: a),
+            _red.withValues(alpha: a),
+            _redDark.withValues(alpha: a),
+          ],
+          stops: const [0.0, 0.4, 1.0],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ).createShader(Rect.fromLTWH(0, 0, w, h)),
+    );
 
     // Tapa superior más clara: da volumen al bloque.
     canvas.drawRect(
@@ -213,6 +239,14 @@ class ObstacleComponent extends DepthComponent {
     final dark = Paint()..color = _redDark.withValues(alpha: 0.7 * a);
     canvas.drawRect(Rect.fromLTWH(w * 0.2, h * 0.2, w * 0.07, h * 0.74), dark);
     canvas.drawRect(Rect.fromLTWH(w * 0.73, h * 0.2, w * 0.07, h * 0.74), dark);
+    // Reflejo vertical sobre el costado izquierdo.
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(w * 0.05, h * 0.2, w * 0.06, h * 0.7),
+        Radius.circular(w * 0.03),
+      ),
+      Paint()..color = const Color(0xFFFFFFFF).withValues(alpha: 0.28 * a),
+    );
 
     canvas.drawRRect(
       body,

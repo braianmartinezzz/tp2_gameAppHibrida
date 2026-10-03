@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 
+import '../theme/app_theme.dart';
+
 /// Publicidad simulada tipo modal con countdown y formato de anuncio.
 /// Se muestra cada vez que se reinicia la partida (requisito de la consigna).
 Future<void> showAdModal(BuildContext context) {
@@ -19,7 +21,9 @@ class _AdModalContent extends StatefulWidget {
 }
 
 class _AdModalContentState extends State<_AdModalContent> {
-  int _secondsLeft = 3;
+  static const int _total = 3;
+
+  int _secondsLeft = _total;
   Timer? _timer;
 
   @override
@@ -28,7 +32,7 @@ class _AdModalContentState extends State<_AdModalContent> {
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) return;
       setState(() {
-        _secondsLeft = (_secondsLeft - 1).clamp(0, 3);
+        _secondsLeft = (_secondsLeft - 1).clamp(0, _total);
       });
       if (_secondsLeft <= 0) timer.cancel();
     });
@@ -43,18 +47,114 @@ class _AdModalContentState extends State<_AdModalContent> {
   @override
   Widget build(BuildContext context) {
     final canClose = _secondsLeft <= 0;
+    final progress = (_total - _secondsLeft) / _total;
+
     return AlertDialog(
-      title: const Text('Anuncio simulado'),
-      content: SizedBox(
-        height: 120,
-        child: Center(
-          child: Icon(Icons.smart_display_outlined, size: 48),
-        ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+      titlePadding: const EdgeInsets.fromLTRB(22, 20, 22, 0),
+      contentPadding: const EdgeInsets.fromLTRB(22, 14, 22, 0),
+      actionsPadding: const EdgeInsets.fromLTRB(22, 14, 22, 18),
+      title: Row(
+        children: [
+          Icon(Icons.campaign_rounded,
+              color: Theme.of(context).colorScheme.primary),
+          const SizedBox(width: 8),
+          const Text(
+            'Anuncio simulado',
+            style: TextStyle(fontWeight: FontWeight.w900),
+          ),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // "Pieza" publicitaria falsa: degradé, botón de play y etiqueta.
+          Container(
+            height: 140,
+            width: double.maxFinite,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              gradient: const LinearGradient(
+                colors: [Color(0xFFFF6B8A), Color(0xFFFFB020)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            child: Stack(
+              children: [
+                Positioned(
+                  top: 10,
+                  left: 10,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.28),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: const Text(
+                      'PUBLICIDAD',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                  ),
+                ),
+                Center(
+                  child: Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.2),
+                          blurRadius: 14,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.play_arrow_rounded,
+                      size: 42,
+                      color: Color(0xFFFF6B8A),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          // Barra de progreso: se llena a medida que corre el countdown.
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(end: progress),
+              duration: const Duration(milliseconds: 900),
+              builder: (_, value, __) => LinearProgressIndicator(
+                value: value,
+                minHeight: 8,
+                color: AppColors.play,
+                backgroundColor:
+                    Theme.of(context).colorScheme.surfaceContainerHighest,
+              ),
+            ),
+          ),
+        ],
       ),
       actions: [
-        TextButton(
-          onPressed: canClose ? () => Navigator.of(context).pop() : null,
-          child: Text(canClose ? 'Cerrar' : 'Cerrar (${_secondsLeft}s)'),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton(
+            onPressed: canClose ? () => Navigator.of(context).pop() : null,
+            child: Text(canClose ? 'Cerrar' : 'Cerrar (${_secondsLeft}s)'),
+          ),
         ),
       ],
     );

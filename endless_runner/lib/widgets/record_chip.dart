@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../state/game_state.dart';
+import '../theme/app_theme.dart';
 
 /// Etiqueta con el récord mientras se corre (Fase 4).
 ///
@@ -16,29 +17,41 @@ class RecordChip extends StatelessWidget {
     // Semitransparente fijo a propósito: el chip se ve igual sobre la calle
     // clara y sobre la oscura, sin depender del tema de la app.
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.fromLTRB(4, 4, 12, 4),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.5),
+        color: const Color(0xFF0B1224).withValues(alpha: 0.55),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white24),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
       ),
       child: ValueListenableBuilder<int>(
         valueListenable: gameState.bestScore,
         builder: (_, best, __) => Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.emoji_events_rounded,
-              size: 14,
-              color: Colors.amber,
+            Container(
+              width: 22,
+              height: 22,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  colors: [AppColors.gold, AppColors.goldDeep],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+              ),
+              child: const Icon(
+                Icons.emoji_events_rounded,
+                size: 13,
+                color: AppColors.goldInk,
+              ),
             ),
-            const SizedBox(width: 5),
+            const SizedBox(width: 6),
             Text(
               'Récord $best',
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 12,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w800,
               ),
             ),
           ],

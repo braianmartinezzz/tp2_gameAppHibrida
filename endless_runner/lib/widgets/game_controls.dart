@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import '../game/runner_game.dart';
 import '../state/game_state.dart';
+import '../theme/app_theme.dart';
 import 'ad_modal.dart';
 
 /// Controla el FlameGame desde AFUERA del widget de juego, como pide la consigna.
+///
+/// Cuatro botones "caramelo" con relieve 3D: se hunden al apretarlos.
 class GameControls extends StatelessWidget {
   const GameControls({
     super.key,
@@ -22,110 +25,169 @@ class GameControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final scheme = Theme.of(context).colorScheme;
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(20),
+          color: scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(
+            color: scheme.outlineVariant.withValues(alpha: 0.6),
+          ),
           boxShadow: [
             BoxShadow(
-              color: theme.colorScheme.shadow.withValues(alpha: 0.08),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
+              color: scheme.shadow.withValues(alpha: 0.12),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
             ),
           ],
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            _ControlPill(
-              tooltip: 'Inicio',
-              icon: Icons.play_arrow_rounded,
-              label: 'Play',
-              onPressed: () => game.resumeEngine(),
-              color: theme.colorScheme.primary,
-            ),
-            _ControlPill(
-              tooltip: 'Pausa',
-              icon: Icons.pause_rounded,
-              label: 'Pause',
-              onPressed: () => game.pauseEngine(),
-              color: theme.colorScheme.secondary,
-            ),
-            _ControlPill(
-              tooltip: 'Reiniciar partida',
-              icon: Icons.replay_rounded,
-              label: 'Reset',
-              onPressed: () => _onRestart(context),
-              color: theme.colorScheme.tertiary,
-            ),
-            ValueListenableBuilder<ThemeMode>(
-              valueListenable: gameState.themeMode,
-              builder: (_, mode, __) => _ControlPill(
-                tooltip: 'Modo claro/oscuro',
-                icon: mode == ThemeMode.dark
-                    ? Icons.dark_mode_rounded
-                    : Icons.light_mode_rounded,
-                label: mode == ThemeMode.dark ? 'Dark' : 'Light',
-                onPressed: gameState.toggleTheme,
-                color: theme.colorScheme.outline,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+          child: Row(
+            children: [
+              Expanded(
+                child: _CandyButton(
+                  tooltip: 'Inicio',
+                  icon: Icons.play_arrow_rounded,
+                  label: 'Play',
+                  color: AppColors.play,
+                  deep: AppColors.playDeep,
+                  onPressed: () => game.resumeEngine(),
+                ),
               ),
-            ),
-          ],
+              Expanded(
+                child: _CandyButton(
+                  tooltip: 'Pausa',
+                  icon: Icons.pause_rounded,
+                  label: 'Pause',
+                  color: AppColors.pause,
+                  deep: AppColors.pauseDeep,
+                  onPressed: () => game.pauseEngine(),
+                ),
+              ),
+              Expanded(
+                child: _CandyButton(
+                  tooltip: 'Reiniciar partida',
+                  icon: Icons.replay_rounded,
+                  label: 'Reset',
+                  color: AppColors.reset,
+                  deep: AppColors.resetDeep,
+                  onPressed: () => _onRestart(context),
+                ),
+              ),
+              Expanded(
+                child: ValueListenableBuilder<ThemeMode>(
+                  valueListenable: gameState.themeMode,
+                  builder: (_, mode, __) => _CandyButton(
+                    tooltip: 'Modo claro/oscuro',
+                    icon: mode == ThemeMode.dark
+                        ? Icons.dark_mode_rounded
+                        : Icons.light_mode_rounded,
+                    label: mode == ThemeMode.dark ? 'Dark' : 'Light',
+                    color: AppColors.mode,
+                    deep: AppColors.modeDeep,
+                    onPressed: gameState.toggleTheme,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _ControlPill extends StatelessWidget {
-  const _ControlPill({
+/// Botón con relieve: un "labio" oscuro debajo que desaparece al presionar,
+/// como si la tecla se hundiera.
+class _CandyButton extends StatefulWidget {
+  const _CandyButton({
     required this.tooltip,
     required this.icon,
     required this.label,
-    required this.onPressed,
     required this.color,
+    required this.deep,
+    required this.onPressed,
   });
 
   final String tooltip;
   final IconData icon;
   final String label;
-  final VoidCallback onPressed;
   final Color color;
+  final Color deep;
+  final VoidCallback onPressed;
+
+  @override
+  State<_CandyButton> createState() => _CandyButtonState();
+}
+
+class _CandyButtonState extends State<_CandyButton> {
+  static const double _lip = 5;
+  bool _pressed = false;
+
+  void _setPressed(bool value) {
+    if (_pressed != value) setState(() => _pressed = value);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final labelColor = Theme.of(context).colorScheme.onSurfaceVariant;
 
     return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          margin: const EdgeInsets.symmetric(vertical: 8),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            color: color.withValues(alpha: 0.12),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 18, color: color),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: theme.textTheme.labelMedium?.copyWith(
-                  color: color,
-                  fontWeight: FontWeight.w700,
-                ),
+      message: widget.tooltip,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (_) => _setPressed(true),
+        onTapUp: (_) => _setPressed(false),
+        onTapCancel: () => _setPressed(false),
+        onTap: widget.onPressed,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 90),
+              curve: Curves.easeOut,
+              width: 58,
+              height: 52,
+              margin: EdgeInsets.only(
+                top: _pressed ? _lip : 0,
+                bottom: _pressed ? 0 : _lip,
               ),
-            ],
-          ),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(18),
+                gradient: LinearGradient(
+                  colors: [
+                    Color.lerp(widget.color, Colors.white, 0.22)!,
+                    widget.color,
+                  ],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+                boxShadow: _pressed
+                    ? const []
+                    : [
+                        BoxShadow(
+                          color: widget.deep,
+                          offset: const Offset(0, _lip),
+                        ),
+                      ],
+              ),
+              child: Icon(widget.icon, size: 30, color: Colors.white),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              widget.label,
+              style: TextStyle(
+                color: labelColor,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.4,
+              ),
+            ),
+          ],
         ),
       ),
     );
