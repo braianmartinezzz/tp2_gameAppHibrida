@@ -272,6 +272,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           context,
           hint: 'Mirá el anuncio completo para seguir jugando',
           closeLabel: 'Revivir',
+          rewarded: true,
         );
         if (!watched || !mounted) return;
       }

@@ -12,6 +12,7 @@ dependencies:
   flame: ^1.18.0
   flutter_svg: ^2.0.10
   shared_preferences: ^2.3.0
+  video_player: ^2.9.2
   cupertino_icons: ^1.0.6
 
 dev_dependencies:
@@ -24,3 +25,4 @@ flutter:
   assets:
     - assets/images/character/kenney_platformerCharacters/adventurer_vector.svg
     - assets/images/character/player_atlas.png
+    - assets/video/

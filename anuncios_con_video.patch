@@ -1,0 +1,237 @@
+diff --git a/endless_runner/lib/screens/home_screen.dart b/endless_runner/lib/screens/home_screen.dart
+index f4dc1f6..2921f9e 100644
+--- a/endless_runner/lib/screens/home_screen.dart
++++ b/endless_runner/lib/screens/home_screen.dart
+@@ -272,6 +272,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+           context,
+           hint: 'Mirá el anuncio completo para seguir jugando',
+           closeLabel: 'Revivir',
++          rewarded: true,
+         );
+         if (!watched || !mounted) return;
+       }
+diff --git a/endless_runner/lib/widgets/ad_modal.dart b/endless_runner/lib/widgets/ad_modal.dart
+index 8837a24..311672d 100644
+--- a/endless_runner/lib/widgets/ad_modal.dart
++++ b/endless_runner/lib/widgets/ad_modal.dart
+@@ -1,5 +1,8 @@
+ import 'dart:async';
++import 'dart:math';
++
+ import 'package:flutter/material.dart';
++import 'package:video_player/video_player.dart';
+ 
+ import '../state/game_state.dart';
+ import '../theme/app_theme.dart';
+@@ -18,10 +21,16 @@ Future<void> showInterstitialAd(BuildContext context, GameState state) async {
+ /// Devuelve `true` si el anuncio se vio completo (se cerró con el botón una
+ /// vez terminado el countdown) y `false` si se salió antes (p. ej. con el
+ /// botón "atrás"): los anuncios con premio solo pagan en el primer caso.
++///
++/// Con [rewarded] el anuncio exige más tiempo de visto antes de poder
++/// cerrarse (los de premio: revivir, +diamantes). Reproduce uno de los videos
++/// de `assets/video/`; si no se puede (tests, plataforma sin plugin, archivo
++/// roto) cae al anuncio simulado de siempre, con cuenta de 3 s.
+ Future<bool> showAdModal(
+   BuildContext context, {
+   String? hint,
+   String closeLabel = 'Cerrar',
++  bool rewarded = false,
+ }) async {
+   final watched = await showGeneralDialog<bool>(
+     context: context,
+@@ -30,7 +39,11 @@ Future<bool> showAdModal(
+     barrierColor: Colors.black54,
+     transitionDuration: const Duration(milliseconds: 220),
+     pageBuilder: (context, _, __) => SafeArea(
+-      child: _AdModalContent(hint: hint, closeLabel: closeLabel),
++      child: _AdModalContent(
++        hint: hint,
++        closeLabel: closeLabel,
++        rewarded: rewarded,
++      ),
+     ),
+     // Entrada: fundido + escala suave; salida: el mismo recorrido a la inversa.
+     transitionBuilder: (context, animation, _, child) {
+@@ -52,7 +65,13 @@ Future<bool> showAdModal(
+ }
+ 
+ class _AdModalContent extends StatefulWidget {
+-  const _AdModalContent({this.hint, this.closeLabel = 'Cerrar'});
++  const _AdModalContent({
++    this.hint,
++    this.closeLabel = 'Cerrar',
++    this.rewarded = false,
++  });
++
++  final bool rewarded;
+ 
+   /// Texto opcional bajo la barra de progreso (qué se gana al terminar).
+   final String? hint;
+@@ -63,14 +82,40 @@ class _AdModalContent extends StatefulWidget {
+ }
+ 
+ class _AdModalContentState extends State<_AdModalContent> {
+-  static const int _total = 3;
++  /// Videos de los anuncios (están en `assets/video/`).
++  static const List<String> _videos = [
++    'assets/video/keep_thinking_with_claude.mp4',
++    'assets/video/lucchetti.mp4',
++    'assets/video/sports_forever.mp4',
++  ];
++
++  /// Último video mostrado: el siguiente anuncio elige otro.
++  static int _lastVideo = -1;
++
++  /// Cuenta del anuncio simulado (sin video).
++  static const int _fallbackSeconds = 3;
++
++  /// Segundos de video que hay que ver antes de poder cerrar. Los videos duran
++  /// entre 25 y 90 s: obligar a verlos enteros sería insoportable, así que se
++  /// pueden cerrar a los 5 s (10 s en los anuncios con premio).
++  static const int _skipAfter = 5;
++  static const int _skipAfterRewarded = 10;
+ 
+-  int _secondsLeft = _total;
++  int _total = _fallbackSeconds;
++  int _secondsLeft = _fallbackSeconds;
+   Timer? _timer;
++  VideoPlayerController? _video;
++  bool _videoReady = false;
+ 
+   @override
+   void initState() {
+     super.initState();
++    _startTimer();
++    _loadVideo();
++  }
++
++  void _startTimer() {
++    _timer?.cancel();
+     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+       if (!mounted) return;
+       setState(() {
+@@ -80,12 +125,81 @@ class _AdModalContentState extends State<_AdModalContent> {
+     });
+   }
+ 
++  /// Elige un video distinto del último y lo reproduce. Si algo falla (tests,
++  /// plataforma sin plugin, archivo roto) el anuncio sigue siendo el simulado.
++  Future<void> _loadVideo() async {
++    var index = Random().nextInt(_videos.length);
++    if (index == _lastVideo) index = (index + 1) % _videos.length;
++    _lastVideo = index;
++
++    final controller = VideoPlayerController.asset(_videos[index]);
++    try {
++      await controller.initialize();
++      // Si el modal se cerró, o la cuenta simulada ya terminó mientras
++      // cargaba, no vale la pena cambiar de formato a último momento.
++      if (!mounted || _secondsLeft <= 0) {
++        await controller.dispose();
++        return;
++      }
++      final skipAfter = widget.rewarded ? _skipAfterRewarded : _skipAfter;
++      final seconds = controller.value.duration.inSeconds;
++      _video = controller;
++      setState(() {
++        _videoReady = true;
++        _total = max(1, min(skipAfter, seconds));
++        _secondsLeft = _total;
++      });
++      _startTimer();
++      await controller.play();
++    } catch (_) {
++      await controller.dispose();
++    }
++  }
++
+   @override
+   void dispose() {
+     _timer?.cancel();
++    _video?.dispose();
+     super.dispose();
+   }
+ 
++  /// Video del anuncio con la etiqueta de publicidad encima.
++  Widget _buildVideo(BuildContext context) {
++    final controller = _video!;
++    return ClipRRect(
++      borderRadius: BorderRadius.circular(20),
++      child: AspectRatio(
++        aspectRatio: controller.value.aspectRatio,
++        child: Stack(
++          fit: StackFit.expand,
++          children: [
++            VideoPlayer(controller),
++            Positioned(
++              top: 10,
++              left: 10,
++              child: Container(
++                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
++                decoration: BoxDecoration(
++                  color: Colors.black.withValues(alpha: 0.45),
++                  borderRadius: BorderRadius.circular(999),
++                ),
++                child: const Text(
++                  'PUBLICIDAD',
++                  style: TextStyle(
++                    color: Colors.white,
++                    fontSize: 10,
++                    fontWeight: FontWeight.w900,
++                    letterSpacing: 1,
++                  ),
++                ),
++              ),
++            ),
++          ],
++        ),
++      ),
++    );
++  }
++
+   @override
+   Widget build(BuildContext context) {
+     final canClose = _secondsLeft <= 0;
+@@ -115,7 +229,10 @@ class _AdModalContentState extends State<_AdModalContent> {
+         mainAxisSize: MainAxisSize.min,
+         children: [
+           // "Pieza" publicitaria falsa: degradé, botón de play y etiqueta.
+-          Container(
++          if (_videoReady)
++            _buildVideo(context)
++          else
++            Container(
+             height: 140,
+             width: double.maxFinite,
+             decoration: BoxDecoration(
+diff --git a/endless_runner/lib/widgets/rewards_modal.dart b/endless_runner/lib/widgets/rewards_modal.dart
+index 2a191b2..b45ec61 100644
+--- a/endless_runner/lib/widgets/rewards_modal.dart
++++ b/endless_runner/lib/widgets/rewards_modal.dart
+@@ -40,7 +40,7 @@ class _RewardsContentState extends State<_RewardsContent> {
+   GameState get state => widget.gameState;
+ 
+   Future<void> _watchAd() async {
+-    final watched = await showAdModal(context);
++    final watched = await showAdModal(context, rewarded: true);
+     if (!mounted || !watched) return;
+     final amount = state.grantAdReward();
+     setState(() => _lastAdReward = amount);
+diff --git a/endless_runner/pubspec.yaml b/endless_runner/pubspec.yaml
+index d9d746c..308a95d 100644
+--- a/endless_runner/pubspec.yaml
++++ b/endless_runner/pubspec.yaml
+@@ -12,6 +12,7 @@ dependencies:
+   flame: ^1.18.0
+   flutter_svg: ^2.0.10
+   shared_preferences: ^2.3.0
++  video_player: ^2.9.2
+   cupertino_icons: ^1.0.6
+ 
+ dev_dependencies:
+@@ -24,3 +25,4 @@ flutter:
+   assets:
+     - assets/images/character/kenney_platformerCharacters/adventurer_vector.svg
+     - assets/images/character/player_atlas.png
++    - assets/video/
