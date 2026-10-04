@@ -68,6 +68,11 @@ class CoinComponent extends DepthComponent {
 
   bool get isGolden => value >= 3;
 
+  /// Perdona ~60 % del ancho de la moneda en X: con el jugador a mitad de un
+  /// cambio de carril la caja (24 px) apenas rozaba la moneda (26 px).
+  @override
+  double get lateralSlack => size.x * 0.6;
+
   /// Borde inferior de la caja sobre el propio suelo (en px de pantalla).
   double _bandMinPx = 0;
 

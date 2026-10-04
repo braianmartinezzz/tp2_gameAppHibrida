@@ -28,8 +28,11 @@ class Perspective {
   double get vanishX => width * 0.5;
 
   /// Bordes del corredor en la línea base (`t == 1`).
-  double get baseLeftX => width * 0.04;
-  double get baseRightX => width * 0.96;
+  ///
+  /// Antes 0.04 / 0.96 (el jugador corría pegado al borde de la pantalla).
+  /// Con 0.12 / 0.88 queda asfalto, hombro y arena visibles a cada lado.
+  double get baseLeftX => width * 0.12;
+  double get baseRightX => width * 0.88;
 
   /// Ancho completo del corredor en la línea base.
   double get baseWidth => baseRightX - baseLeftX;

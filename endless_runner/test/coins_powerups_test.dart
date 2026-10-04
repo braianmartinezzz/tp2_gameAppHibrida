@@ -86,7 +86,13 @@ void _driveToNextObstacle(RunnerGame game) {
       .toList()
     ..sort((a, b) => b.baseY.compareTo(a.baseY)); // más cercano primero
   if (ahead.isNotEmpty) {
-    game.player.lane = ahead.first.lane.round();
+    final next = ahead.first;
+    if (next.kind == ObstacleKind.car) {
+      // El auto tapa dos carriles: la salida es el carril que no cubre.
+      game.player.lane = next.lane > 0 ? -1 : 1;
+    } else {
+      game.player.lane = next.lane.round();
+    }
   }
 }
 

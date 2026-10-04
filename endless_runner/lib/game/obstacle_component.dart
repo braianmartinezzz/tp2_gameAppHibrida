@@ -18,6 +18,11 @@ enum ObstacleKind {
   /// Contenedor alto: **hay que cambiar de carril** (banda 0..90, más alto
   /// que el techo del salto ~60 px).
   block,
+
+  /// Auto abandonado que **ocupa dos carriles** (banda 0..72, más alto que el
+  /// techo del salto): hay que irse al carril libre. Se genera centrado en
+  /// -0.5 (cubre los carriles -1 y 0) o en +0.5 (cubre 0 y +1).
+  car,
 }
 
 /// Obstáculo proyectado en perspectiva 2.5D.
@@ -61,7 +66,25 @@ class ObstacleComponent extends DepthComponent {
         ObstacleKind.lowBarrier => (width: 52, bandMin: 0, bandMax: 16),
         ObstacleKind.overhead => (width: 46, bandMin: 24, bandMax: 130),
         ObstacleKind.block => (width: baseSize, bandMin: 0, bandMax: 90),
+        // Ancho en función del corredor (no en px fijos): 0.66 de baseWidth =
+        // 1.32 unidades de carril, o sea dos carriles completos con el margen
+        // justo para que el jugador parado en el segundo también choque.
+        ObstacleKind.car => (
+          width: perspective.baseWidth * carWidthFrac,
+          bandMin: 0,
+          bandMax: 72,
+        ),
       };
+
+  /// Fracción de `baseWidth` que ocupa un auto de dos carriles.
+  static const double carWidthFrac = 0.66;
+
+  /// Carriles (-1, 0, 1) que bloquea este obstáculo.
+  List<double> get coveredLanes => kind == ObstacleKind.car
+      ? (lane > 0 ? const [0.0, 1.0] : const [-1.0, 0.0])
+      : [lane.roundToDouble()];
+
+  bool coversLane(double l) => coveredLanes.contains(l);
 
   @override
   void update(double dt) {
@@ -112,6 +135,8 @@ class ObstacleComponent extends DepthComponent {
         _drawOverhead(canvas, w, h, groundY);
       case ObstacleKind.block:
         _drawBlock(canvas, w, h);
+      case ObstacleKind.car:
+        _drawCar(canvas, w, h);
     }
   }
 
@@ -459,6 +484,94 @@ class ObstacleComponent extends DepthComponent {
         ..style = PaintingStyle.stroke
         ..strokeWidth = max(1.0, r.width * 0.05)
         ..color = dark.withValues(alpha: 0.85 * a),
+    );
+  }
+
+  /// Auto abandonado visto desde atrás: carrocería oxidada, luneta rota,
+  /// ruedas, luces traseras apagadas y una puerta del baúl entreabierta.
+  void _drawCar(Canvas canvas, double w, double h) {
+    final a = alpha;
+    final body = const Color(0xFF6B7A86);
+    final dark = Color.lerp(body, Colors.black, 0.55)!;
+
+    // Ruedas (asoman debajo de la carrocería).
+    final wheelW = w * 0.14;
+    final wheelH = h * 0.26;
+    for (final x in [w * 0.08, w * 0.78]) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(x, h - wheelH, wheelW, wheelH),
+          Radius.circular(wheelW * 0.3),
+        ),
+        Paint()..color = _ink.withValues(alpha: a),
+      );
+    }
+
+    // Techo + cabina (trapecio) y baúl (rectángulo ancho).
+    final cabin = Path()
+      ..moveTo(w * 0.20, h * 0.46)
+      ..lineTo(w * 0.28, h * 0.04)
+      ..lineTo(w * 0.72, h * 0.04)
+      ..lineTo(w * 0.80, h * 0.46)
+      ..close();
+    final trunk = RRect.fromRectAndRadius(
+      Rect.fromLTWH(0, h * 0.42, w, h * 0.46),
+      Radius.circular(max(1.0, w * 0.03)),
+    );
+    canvas.drawPath(cabin, Paint()..color = body.withValues(alpha: a));
+    canvas.drawRRect(
+      trunk,
+      Paint()
+        ..shader = LinearGradient(
+          colors: [
+            Color.lerp(body, Colors.white, 0.15)!.withValues(alpha: a),
+            dark.withValues(alpha: a),
+          ],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ).createShader(trunk.outerRect),
+    );
+
+    // Luneta trasera con grieta.
+    final glass = Path()
+      ..moveTo(w * 0.25, h * 0.40)
+      ..lineTo(w * 0.31, h * 0.11)
+      ..lineTo(w * 0.69, h * 0.11)
+      ..lineTo(w * 0.75, h * 0.40)
+      ..close();
+    canvas.drawPath(glass, Paint()..color = const Color(0xFF1B2A33).withValues(alpha: 0.9 * a));
+    canvas.drawPath(
+      Path()
+        ..moveTo(w * 0.50, h * 0.11)
+        ..lineTo(w * 0.46, h * 0.26)
+        ..lineTo(w * 0.54, h * 0.34),
+      Paint()
+        ..color = const Color(0xFFCFE3EA).withValues(alpha: 0.7 * a)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = max(0.8, w * 0.008),
+    );
+
+    // Luces traseras (una rota), patente y óxido.
+    final lightH = h * 0.12;
+    canvas.drawRect(
+      Rect.fromLTWH(w * 0.04, h * 0.52, w * 0.12, lightH),
+      Paint()..color = const Color(0xFFB3261E).withValues(alpha: a),
+    );
+    canvas.drawRect(
+      Rect.fromLTWH(w * 0.84, h * 0.52, w * 0.12, lightH),
+      Paint()..color = const Color(0xFF4A1512).withValues(alpha: a),
+    );
+    canvas.drawRect(
+      Rect.fromLTWH(w * 0.42, h * 0.60, w * 0.16, h * 0.10),
+      Paint()..color = const Color(0xFFD9D4BF).withValues(alpha: 0.9 * a),
+    );
+    _rust(canvas, Rect.fromLTWH(w * 0.55, h * 0.50, w * 0.28, h * 0.26), a);
+    canvas.drawRRect(
+      trunk,
+      Paint()
+        ..color = _ink.withValues(alpha: 0.6 * a)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2,
     );
   }
 

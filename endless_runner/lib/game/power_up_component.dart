@@ -57,6 +57,10 @@ class PowerUpComponent extends DepthComponent {
   double _bandMinPx = 0;
   double _anim = 0;
 
+  /// Mismo perdón lateral que las monedas (ver [CoinComponent.lateralSlack]).
+  @override
+  double get lateralSlack => size.x * 0.6;
+
   void syncGeometry() {
     final s = depthScale;
     final w = worldSize * s;

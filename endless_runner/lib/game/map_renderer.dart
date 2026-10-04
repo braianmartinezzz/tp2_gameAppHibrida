@@ -479,12 +479,12 @@ class MapRenderer {
 
     // 10) Bruma de distancia + resplandor del horizonte --------------------------
     canvas.drawRect(
-      Rect.fromLTWH(0, vy, w, p.corridorHeight * 0.45),
+      Rect.fromLTWH(0, vy, w, p.corridorHeight * 0.18),
       Paint()
         ..shader = ui.Gradient.linear(
           Offset(0, vy),
-          Offset(0, vy + p.corridorHeight * 0.45),
-          [c.haze.withValues(alpha: 0.95), c.haze.withValues(alpha: 0.0)],
+          Offset(0, vy + p.corridorHeight * 0.18),
+          [c.haze.withValues(alpha: 0.40), c.haze.withValues(alpha: 0.0)],
         ),
     );
     canvas.drawRect(
@@ -495,7 +495,7 @@ class MapRenderer {
           Offset(0, vy + 16),
           [
             c.haze.withValues(alpha: 0.0),
-            c.haze.withValues(alpha: 0.55),
+            c.haze.withValues(alpha: 0.25),
             c.haze.withValues(alpha: 0.0),
           ],
           [0.0, 0.5, 1.0],
@@ -1669,7 +1669,7 @@ const _Palette _light = _Palette(
   roadNear: Color(0xFF3E4249),
   roadLine: Color(0xFFE6DFC8),
   stripe: Color(0xFFFFFFFF),
-  haze: Color(0xFFEBC9A0),
+  haze: Color(0xFFE9B37C), // = skyBottom: se funde con el cielo, sin banda lechosa
   propNight: Color(0xFF1A2233),
   cloudShade: Color(0x66584A44),
   kerbA: Color(0xFF7E2F2B),

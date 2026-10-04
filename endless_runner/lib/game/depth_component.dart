@@ -78,9 +78,28 @@ abstract class DepthComponent extends PositionComponent {
     return (size.x * 0.5) / halfWidth;
   }
 
+  // Tramo de profundidad recorrido en el último [advance]. Sirve para la
+  // colisión barrida: si un frame es largo, el actor puede cruzar toda la
+  // fila del jugador sin que ningún frame lo vea dentro de ±[depthMargin].
+  double _sweepFrom = double.nan;
+  double _sweepTo = double.nan;
+
   /// Avanza un paso con la aceleración de perspectiva.
   void advance(double dt) {
+    final from = baseY;
     baseY += speed * (0.5 + 0.5 * t) * dt;
+    _sweepFrom = from;
+    _sweepTo = baseY;
+  }
+
+  /// true si el tramo recorrido en el último frame (más el margen) toca la
+  /// fila [feetY]. Si alguien movió [baseY] a mano (tests, respawns) el tramo
+  /// guardado ya no vale y se usa solo la posición actual.
+  bool reachesRow(double feetY) {
+    final from = (baseY == _sweepTo) ? _sweepFrom : baseY;
+    final lo = (from < baseY ? from : baseY) - depthMargin;
+    final hi = (from > baseY ? from : baseY) + depthMargin;
+    return feetY >= lo && feetY <= hi;
   }
 
   /// Rect de la caja en pantalla (borde superior izquierdo = `position`).
@@ -99,7 +118,14 @@ abstract class DepthComponent extends PositionComponent {
         player,
         bandMin: baseY - (position.y + size.y),
         bandMax: baseY - position.y,
+        lateralSlack: lateralSlack,
       );
+
+  /// Holgura lateral (px) que se le suma a la caja del jugador al chequear el
+  /// solape en X. 0 para obstáculos (golpe exacto); las monedas la
+  /// sobreescriben para que no se escapen por unos píxeles mientras el
+  /// jugador está cambiando de carril.
+  double get lateralSlack => 0;
 
   /// Colisión con el [player] en tres pasos:
   ///
@@ -114,13 +140,17 @@ abstract class DepthComponent extends PositionComponent {
     PlayerComponent player, {
     required double bandMin,
     required double bandMax,
+    double lateralSlack = 0,
   }) {
     if (alpha <= 0) return false;
-    if ((baseY - player.groundFeetY).abs() > depthMargin) return false;
+    // Fila barrida: cuenta el tramo recorrido en el frame, no solo el punto.
+    if (!reachesRow(player.groundFeetY)) return false;
 
     final a = hitBox;
     final b = player.hitBox;
-    if (a.left >= b.right || a.right <= b.left) return false;
+    if (a.left >= b.right + lateralSlack || a.right <= b.left - lateralSlack) {
+      return false;
+    }
 
     final playerBottom = player.jumpY;
     final playerTop = player.jumpY + player.bodyHeight;

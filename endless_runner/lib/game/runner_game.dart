@@ -143,6 +143,13 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
   double _elapsed = 0;
   double _scoreCarry = 0; // puntos de score aún no enteros
 
+  /// Segundos de partida antes de que aparezca el primer auto de dos carriles
+  /// (los primeros segundos sirven para aprender los otros obstáculos).
+  static const double carStartSeconds = 12;
+
+  /// true si el último obstáculo generado fue un auto (nunca dos seguidos).
+  bool _lastWasCar = false;
+
   // Geometría de perspectiva vigente (una sola fuente de verdad para el mapa,
   // los actores del corredor y el jugador con sus carriles).
   Perspective _perspective = const Perspective(width: 0, height: 0);
@@ -408,11 +415,20 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     final ahead = _obstacles.where((o) => o.baseY < feet + 40).toList()
       ..sort((a, b) => b.baseY.compareTo(a.baseY)); // más cercano primero
 
+    var kind = _rollKind();
+    double? lane;
+    if (kind == ObstacleKind.car) {
+      lane = _carLane(ahead);
+      if (lane == null) kind = ObstacleKind.block; // no hay carril libre seguro
+    }
+    lane ??= _nextLane(ahead);
+    _lastWasCar = kind == ObstacleKind.car;
+
     final obstacle = ObstacleComponent(
-      lane: _nextLane(ahead),
+      lane: lane,
       speed: _difficultySpeed,
       perspective: _perspective,
-      kind: _rollKind(),
+      kind: kind,
     );
     _obstacles.add(obstacle);
     add(obstacle);
@@ -482,11 +498,50 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     return zombie;
   }
 
+  /// Profundidad (px) alrededor de la fila de spawn en la que un obstáculo
+  /// todavía cuenta como "vecino" del que está por nacer: ~2 spawns de
+  /// separación. Dentro de esa franja el carril libre del auto tiene que
+  /// seguir libre.
+  static const double _carNeighbourhood = 320;
+
+  /// Carril central (-0.5 o +0.5) para un auto de dos carriles, o null si no
+  /// se puede garantizar un carril libre. El carril que queda libre es -1 (si
+  /// el auto cubre 0 y +1) o +1 (si cubre -1 y 0); ese carril no puede estar
+  /// ocupado por ningún obstáculo vecino. Se prefiere dejar libre el carril en
+  /// el que ya está el jugador.
+  double? _carLane(List<ObstacleComponent> ahead) {
+    final spawnY = _perspective.yAtT(0.06);
+    final near =
+        ahead.where((o) => (o.baseY - spawnY).abs() < _carNeighbourhood);
+    final candidates = <double>[
+      for (final free in const [-1.0, 1.0])
+        if (!near.any((o) => o.coversLane(free))) free,
+    ];
+    if (candidates.isEmpty) return null;
+    final player = _player.lane.toDouble();
+    final free = candidates.contains(player)
+        ? player
+        : candidates[_rng.nextInt(candidates.length)];
+    return free < 0 ? 0.5 : -0.5; // el auto cubre el lado opuesto al libre
+  }
+
   /// Carril para el próximo obstáculo, mirando los dos más cercanos que aún no
   /// pasaron al jugador (ver doc de [_spawnObstacle]).
   double _nextLane(List<ObstacleComponent> ahead) {
     const lanes = [-1.0, 0.0, 1.0];
     final currentLane = _player.lane.toDouble();
+
+    // Con un auto de dos carriles recién generado, el siguiente obstáculo
+    // cae dentro de los carriles que el auto ya bloquea: así el carril libre
+    // sigue siendo una salida segura y nunca se arma una pared de tres.
+    final spawnY = _perspective.yAtT(0.06);
+    final recentCar = ahead.where((o) =>
+        o.kind == ObstacleKind.car &&
+        (o.baseY - spawnY).abs() < _carNeighbourhood);
+    if (recentCar.isNotEmpty) {
+      final covered = recentCar.first.coveredLanes;
+      return covered[_rng.nextInt(covered.length)];
+    }
 
     if (ahead.length >= 2) {
       final first = ahead[0].lane;
@@ -531,6 +586,13 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
 
   /// Tipo de obstáculo con pesos: el contenedor (esquivar) es el más común.
   ObstacleKind _rollKind() {
+    // 20 % de autos (si ya pasó el tramo de aprendizaje y el anterior no lo
+    // fue); el resto reparte con los pesos de siempre.
+    if (_elapsed >= carStartSeconds &&
+        !_lastWasCar &&
+        _rng.nextDouble() < 0.2) {
+      return ObstacleKind.car;
+    }
     final roll = _rng.nextDouble();
     if (roll < 0.4) return ObstacleKind.block;
     if (roll < 0.7) return ObstacleKind.lowBarrier;
@@ -975,6 +1037,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     _coinCooldown = 2.0;
     _powerUpCooldown = 10.0;
     _elapsed = 0;
+    _lastWasCar = false;
     _difficultySpeed = 260;
     _scoreCarry = 0;
     horde.reset();
