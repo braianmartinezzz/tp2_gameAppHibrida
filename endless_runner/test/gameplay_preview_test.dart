@@ -81,7 +81,7 @@ void main() {
         ..powerUpPickup(const Offset(330, 440), PowerUpKind.shield)
         ..landDust(
           Offset(game.player.position.x, game.player.groundFeetY),
-          dark: dark,
+          blend: dark ? 1.0 : 0.0,
         );
       for (var i = 0; i < 9; i++) {
         game.juice.update(0.016);

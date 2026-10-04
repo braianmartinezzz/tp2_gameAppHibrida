@@ -30,9 +30,10 @@ class AppColors {
   static const List<Color> headerLight = [Color(0xFF6C5CE7), Color(0xFF9B6BFF)];
 }
 
-/// El juego (canvas de Flame) se mantiene igual en ambos modos,
-/// como pide la consigna. Lo que cambia es la UI de Flutter alrededor
-/// (header, botonera, modales).
+/// El juego (canvas de Flame) también cambia: el desierto es de día con el
+/// tema claro y nocturno (estrellado) con el oscuro, con un fundido de
+/// ~0.35 s entre ambos. Lo que cambia además es la UI de Flutter alrededor
+/// (header, botonera, modales) y la barra de estado.
 class AppTheme {
   static final ThemeData light = _build(
     brightness: Brightness.light,
@@ -51,12 +52,37 @@ class AppTheme {
     required Color seed,
     required Color background,
   }) {
-    final scheme = ColorScheme.fromSeed(seedColor: seed, brightness: brightness);
+    // `surfaceTint` en transparente: Material 3 tiñe cada nivel de elevación
+    // con el color de la semilla y en oscuro dejaba un halo violeta extraño
+    // bajo las tarjetas y los diálogos.
+    final scheme = ColorScheme.fromSeed(seedColor: seed, brightness: brightness)
+        .copyWith(surfaceTint: Colors.transparent);
     return ThemeData(
       brightness: brightness,
       scaffoldBackgroundColor: background,
       colorScheme: scheme,
       useMaterial3: true,
+      // Hojas inferiores (premios, tienda): mismas esquinas que los diálogos
+      // y sin tinte de elevación.
+      bottomSheetTheme: const BottomSheetThemeData(
+        surfaceTintColor: Colors.transparent,
+        showDragHandle: true,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+      ),
+      dialogTheme: const DialogThemeData(
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(24)),
+        ),
+      ),
+      // Slider de sensibilidad: pulgares grandes y pistas gruesas.
+      sliderTheme: const SliderThemeData(
+        trackHeight: 6,
+        thumbShape: RoundSliderThumbShape(enabledThumbRadius: 9),
+        overlayShape: RoundSliderOverlayShape(overlayRadius: 18),
+      ),
       // Botones gorditos y redondeados: pensados para dedos chicos.
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(

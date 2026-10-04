@@ -100,17 +100,30 @@ class GameControls extends StatelessWidget {
                 ),
               ),
               Expanded(
+                // Auto → Claro → Oscuro → Auto. El icono y el rótulo cuentan
+                // el modo elegido (no el brillo resuelto): en "Auto" el
+                // aspecto real puede ser cualquiera de los dos.
                 child: ValueListenableBuilder<ThemeMode>(
                   valueListenable: gameState.themeMode,
                   builder: (_, mode, __) => _CandyButton(
-                    tooltip: 'Modo claro/oscuro',
-                    icon: mode == ThemeMode.dark
-                        ? Icons.dark_mode_rounded
-                        : Icons.light_mode_rounded,
-                    label: mode == ThemeMode.dark ? 'Dark' : 'Light',
+                    tooltip: switch (mode) {
+                      ThemeMode.system => 'Tema: automático (sistema)',
+                      ThemeMode.light => 'Tema: claro',
+                      ThemeMode.dark => 'Tema: oscuro',
+                    },
+                    icon: switch (mode) {
+                      ThemeMode.system => Icons.brightness_auto_rounded,
+                      ThemeMode.light => Icons.light_mode_rounded,
+                      ThemeMode.dark => Icons.dark_mode_rounded,
+                    },
+                    label: switch (mode) {
+                      ThemeMode.system => 'Auto',
+                      ThemeMode.light => 'Claro',
+                      ThemeMode.dark => 'Oscuro',
+                    },
                     color: AppColors.mode,
                     deep: AppColors.modeDeep,
-                    onPressed: gameState.toggleTheme,
+                    onPressed: gameState.cycleTheme,
                   ),
                 ),
               ),
@@ -175,36 +188,36 @@ class _CandyButtonState extends State<_CandyButton> {
             Stack(
               clipBehavior: Clip.none,
               children: [
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 90),
-              curve: Curves.easeOut,
-              width: 58,
-              height: 52,
-              margin: EdgeInsets.only(
-                top: _pressed ? _lip : 0,
-                bottom: _pressed ? 0 : _lip,
-              ),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(18),
-                gradient: LinearGradient(
-                  colors: [
-                    Color.lerp(widget.color, Colors.white, 0.22)!,
-                    widget.color,
-                  ],
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                ),
-                boxShadow: _pressed
-                    ? const []
-                    : [
-                        BoxShadow(
-                          color: widget.deep,
-                          offset: const Offset(0, _lip),
-                        ),
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 90),
+                  curve: Curves.easeOut,
+                  width: 58,
+                  height: 52,
+                  margin: EdgeInsets.only(
+                    top: _pressed ? _lip : 0,
+                    bottom: _pressed ? 0 : _lip,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(18),
+                    gradient: LinearGradient(
+                      colors: [
+                        Color.lerp(widget.color, Colors.white, 0.22)!,
+                        widget.color,
                       ],
-              ),
-              child: Icon(widget.icon, size: 30, color: Colors.white),
-            ),
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                    ),
+                    boxShadow: _pressed
+                        ? const []
+                        : [
+                            BoxShadow(
+                              color: widget.deep,
+                              offset: const Offset(0, _lip),
+                            ),
+                          ],
+                  ),
+                  child: Icon(widget.icon, size: 30, color: Colors.white),
+                ),
                 if (widget.badge > 0)
                   Positioned(
                     top: -4,

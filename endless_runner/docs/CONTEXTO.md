@@ -17,7 +17,7 @@ Laboratorio de Apps Móviles.
 | Versión | `1.0.0+1` |
 | SDK Dart | `>=3.0.0 <4.0.0` |
 | Framework | Flutter + **Flame `^1.18.0`** (motor de juego 2D) |
-| UI | Material 3 (`useMaterial3: true`), modo claro/oscuro |
+| UI | Material 3 (`useMaterial3: true`), tema **Auto / claro / oscuro** (persistente) |
 | Assets | Ninguno: todo el arte es **vectorial dibujado a mano** en Canvas |
 
 ### Qué está simulado (sin backend)
@@ -72,8 +72,10 @@ lib/
 ```
                     ┌────────────────────────────┐
                     │        main.dart           │
-                    │   RunnerApp (Stateless)    │
-                    │   crea GameState() único   │
+                    │  RunnerApp (Stateful +     │
+                    │  WidgetsBindingObserver)   │
+                    │  GameState() único, espeja │
+                    │  el brillo del sistema     │
                     └─────────────┬──────────────┘
                                   │
                     ┌─────────────▼──────────────┐
@@ -133,7 +135,8 @@ Clase `GameState` con `ValueNotifier` públicos:
 | `diamonds` | `int` | `85` | Billetera (se gasta en tienda/golpes) |
 | `accountType` | `String` | `'basic'` | `'basic'` \| `'pro'` |
 | `isGameOver` | `bool` | `false` | La partida terminó |
-| `themeMode` | `ThemeMode` | `dark` | Modo claro/oscuro |
+| `themeMode` | `ThemeMode` | `system` | Tema elegido: `Auto` → `Claro` → `Oscuro` → `Auto` (lo cicla el botón 🌓) |
+| `platformBrightness` | `Brightness` | `dark` | Brillo del SO espejado desde `didChangePlatformBrightness`; con `system` resuelve el modo sin contexto de Flame |
 | `bestScore` | `int` | `0` | Récord de la sesión (en memoria) |
 | `isNewRecord` | `bool` | `false` | La partida superó el récord |
 | `runDiamonds` | `int` | `0` | Diamantes ganados en la corrida (para el resumen) |
@@ -149,7 +152,8 @@ Clase `GameState` con `ValueNotifier` públicos:
   saldo.
 - `resetRun()` — limpia score/`runDiamonds`/`isNewRecord`/`isGameOver`.
   **`bestScore` no se toca**: el récord sobrevive a los reinicios.
-- `toggleTheme()` / `toggleAccountType()` — alternan modo y cuenta.
+- `cycleTheme()` / `toggleAccountType()` — ciclan el tema (Auto → Claro →
+  Oscuro → Auto, guardándolo) y alternan la cuenta.
   > Nota: `toggleAccountType()` existe pero **no está conectado a ningún
   > botón**; el chip `BASIC/PRO` es solo informativo.
 - `isPro` (getter) — `accountType == 'pro'`.
@@ -354,8 +358,11 @@ la profundidad la gobierna la ley de perspectiva, así no se "teletransporta".
 
 - Avance en coordenada de mundo `z` (`dz = worldSpeed / corridorHeight * dt`):
   el piso se mueve a la misma velocidad que el juego.
-- Dos paletas `_dark` / `_light`: **tema oscuro ⇒ desierto nocturno
-  estrellado**; tema claro ⇒ desierto de día.
+- Dos paletas `_dark` / `_light` mezcladas con `_Palette.lerp(_light, _dark,
+  blend)`: **tema oscuro ⇒ desierto nocturno estrellado**; tema claro ⇒
+  desierto de día. El `blend` (0..1) lo anima `RunnerGame` en ~0.35 s, así que
+  el cambio de tema cruza (cielo, sol→luna, props) en vez de cortar en seco;
+  con el motor pausado se clava en el extremo.
 - Expuesto a tests: `props` y `drawProps` (`@visibleForTesting`).
 
 ### 4.9 `juice.dart` — feedback instantáneo
@@ -371,7 +378,7 @@ fuente de relleno de los tests/previews no salga un rectángulo).
 | `shieldAbsorb` | Onda azul (sin rojo) + shake 3.5 |
 | `hitPaid` | Destello rojo 0.55 + shake 6 |
 | `death` | Anillo hasta r=96 + 24 chispas + flash 0.9 + shake 11 |
-| `landDust` | Anillo aplastado (polvo al aterrizar), tinte según tema |
+| `landDust` | Anillo aplastado (polvo al aterrizar), tinte según `blend` del tema |
 | `flash` | Viñeta radial (un flash débil no pisa a uno fuerte) |
 
 - `maxShake = 12` px, decaimiento exponencial (~9 Hz de wobble).
@@ -404,7 +411,7 @@ Scaffold > SafeArea > Column
 | Widget | Qué hace |
 |---|---|
 | **`GameHeader`** | Barra superior: `CircleAvatar` + username + `score: N` + chip `BASIC`/`PRO` + ícono 💎 con contador → **tap abre la tienda** (`showDiamondShopModal`) |
-| **`GameControls`** | Botonera externa de 4 `IconButton`: ▶ `resumeEngine()`, ⏸ `pauseEngine()`, ↻ **anuncio simulado + `restartRun()`**, 🌓 `toggleTheme()` (ícono según modo) |
+| **`GameControls`** | Botonera externa de 5 botones "caramelo": ▶ play, ⏸ pausa, 💎 tienda, 🎁 premios, ↻ **anuncio simulado + `restartRun()`**, 🌓 `cycleTheme()` (rótulo `Auto`/`Claro`/`Oscuro`) |
 | **`GameOverOverlay`** | Card animada (240 ms, `easeOutBack`) sobre el corredor: título "PARTIDA TERMINADA", filas **Puntaje** y **Récord**, píldora "¡NUEVO RÉCORD!" si aplica, "Ganaste N diamantes", botón **Reintentar** → `onRestart`. Lee los valores al construir (la partida está congelada) |
 | **`RecordChip`** | Chip semitransparente arriba a la izquierda: trofeo ámbar + "Récord N" (suscripto a `bestScore`). Se oculta en game over. Colores fijos para verse igual en calle clara/oscura |
 | **`showAdModal`** | `AlertDialog` "Anuncio simulado" con ícono de play, **countdown de 3 s** y botón "Cerrar (Ns)" deshabilitado hasta que termine. `barrierDismissible: false` |
@@ -414,12 +421,25 @@ Scaffold > SafeArea > Column
 
 | Modo | Background | Seed | Brillo |
 |---|---|---|---|
-| `AppTheme.light` | `0xFFF4F1EA` (hueso) | `0xFF3C34D8` (índigo) | light |
-| `AppTheme.dark` | `0xFF15151A` (casi negro) | `0xFF7F77DD` (lila) | dark |
+| `AppTheme.light` | `0xFFF6F3FF` (lavanda claro) | `0xFF6C5CE7` (violeta) | light |
+| `AppTheme.dark` | `0xFF14122B` (índigo casi negro) | `0xFF8B7CFF` (lila) | dark |
 
-> El tema cambia la **UI Flutter** alrededor (header, botonera, modales) y la
-> **paleta del mapa** en `MapRenderer` (día/noche). El resto del canvas de
-> Flame es el mismo en ambos modos.
+Detalles de `ThemeData` (además del `ColorScheme.fromSeed`):
+
+- `surfaceTint: Colors.transparent` en el `ColorScheme`: Material 3 tiñe cada
+  nivel de elevación con la semilla y en oscuro dejaba un halo violeta raro
+  bajo tarjetas y diálogos.
+- `bottomSheetTheme` (esquinas 32, sin tinte), `dialogTheme` (esquinas 24) y
+  `sliderTheme` (pista gruesa + pulgar grande) para los controles de
+  dedos chicos.
+- `MaterialApp` usa `themeMode` con `themeAnimationDuration: 320 ms`, así que
+  al ciclar el tema la UI de Flutter transiciona en paralelo al fundido del
+  lienzo.
+
+> El tema cambia la **UI Flutter** alrededor (header, botonera, modales), la
+> **paleta del mapa** en `MapRenderer` (día↔noche, con fundido de ~0.35 s) y
+> los **colores de la barra de sistema** (`AnnotatedRegion<SystemUiOverlayStyle>`
+> en `HomeScreen`, que resuelve `ThemeMode.system` contra el brillo del SO).
 
 ---
 
@@ -454,7 +474,7 @@ GameOverOverlay
 
 ## 7. Tests — `test/`
 
-≈ **60 tests en 12 archivos**. Patrón común: `TestWidgetsFlutterBinding`,
+≈ **75 tests en 13 archivos**. Patrón común: `TestWidgetsFlutterBinding`,
 geometría fija `const Perspective(width: 480, height: 760)` y helpers
 (`_player()`, `_jumping({seconds})`, `_atRow(...)`).
 
@@ -472,6 +492,7 @@ geometría fija `const Perspective(width: 480, height: 760)` y helpers
 | `widget_test.dart` | `GameHeader` muestra `braian_123`, `score: 0`, `85` diamantes, chip `BASIC` |
 | `map_preview_test.dart` | Genera `build/map_preview_{dark,light}.png` |
 | `gameplay_preview_test.dart` | Genera `build/gameplay_preview_{dark,light,death}.png` |
+| `theme_test.dart` | Ciclo `Auto → Claro → Oscuro`, resolución de `Auto` contra el SO, persistencia del `theme`, fundido del lienzo (corriendo y pausado), paleta día↔noche y **contraste WCAG** de la UI |
 
 ---
 
@@ -488,6 +509,10 @@ geometría fija `const Perspective(width: 480, height: 760)` y helpers
 - Release firmado con claves **debug** *(TODO: claves propias)*.
 - `AndroidManifest`: **sin permisos declarados** (no hay INTERNET ni otros),
   label `endless_runner`, `MainActivity` `singleTop` + `hardwareAccelerated`.
+- Colores de arranque acordes al tema: `values{,-night}/colors.xml` define
+  `launch_background` (`#F6F3FF` claro / `#14122B` noche) que usan tanto el
+  splash (`drawable*/launch_background.xml`) como `NormalTheme`, así que no
+  parpadea blanco al abrir en modo oscuro.
 - No hay configuración de anuncios ni de compras reales: todo es simulado en
   UI.
 
@@ -500,8 +525,12 @@ geometría fija `const Perspective(width: 480, height: 760)` y helpers
 
 ### Web / escritorio
 
-- `web/`: `flutter_bootstrap.js`, manifest `endless_runner`, icons 192/512 +
-  maskable + favicon.
+- `web/`: `flutter_bootstrap.js`, manifest `endless_runner` (colores del
+  proyecto `#14122B` / `#5B3FD0`), icons 192/512 + maskable + favicon.
+- `index.html`: `color-scheme: light dark` y dos `theme-color` con
+  `media="(prefers-color-scheme: …)"` para que la barra del navegador siga
+  al sistema — lo mismo que hace el modo `Auto`. Si el usuario fuerza un tema
+  distinto al del SO, ese chrome no se puede cambiar desde Dart sin JS.
 - `linux/` (CMake), `macos/` (entitlements), `windows/` (runner CMake).
 
 ### Análisis
@@ -549,4 +578,6 @@ flutter analyze
   tienda de packs, anuncio de 3 s antes de cada reinicio, récord en memoria.
 - **Juice**: shake (máx. 12 px), chispas, anillos, "+1", destellos, polvo al
   aterrizar y gracia de 1.05 s de muerte antes de pausar.
-- **Tema**: claro (desierto de día) / oscuro (desierto nocturno estrellado).
+- **Tema**: `Auto` (sigue al SO) / claro (desierto de día) / oscuro (desierto
+  nocturno estrellado), ciclado por el botón 🌓 y guardado en el save. El
+  canvas hace un **fundido de ~0.35 s** entre paletas.

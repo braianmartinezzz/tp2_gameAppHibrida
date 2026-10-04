@@ -1,6 +1,7 @@
 import 'package:flame/game.dart';
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../game/runner_game.dart';
 import '../state/game_state.dart';
 import '../state/rewards.dart';
@@ -64,169 +65,188 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final state = widget.gameState;
+    // Iconos de la barra de estado y de navegación según el tema: sin esto
+    // Android puede dejar íconos claros sobre fondo claro (o al revés).
+    // `Theme.of` ya resuelve `ThemeMode.system` contra el brillo del SO.
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Scaffold(
-      body: SafeArea(
-        child: Column(
-          children: [
-            // Entrada de la pantalla: el header baja y la botonera sube
-            // mientras el marco del juego aparece con un fundido.
-            _Entrance(
-              from: const Offset(0, -24),
-              child: GameHeader(
-                gameState: state,
-                onBeforeShop: _game.pauseGame,
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+        // iOS pone el brillo "al revés": brightness.light = íconos claros.
+        statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
+        systemNavigationBarColor: Theme.of(context).scaffoldBackgroundColor,
+        systemNavigationBarIconBrightness:
+            isDark ? Brightness.light : Brightness.dark,
+      ),
+      child: Scaffold(
+        body: SafeArea(
+          child: Column(
+            children: [
+              // Entrada de la pantalla: el header baja y la botonera sube
+              // mientras el marco del juego aparece con un fundido.
+              _Entrance(
+                from: const Offset(0, -24),
+                child: GameHeader(
+                  gameState: state,
+                  onBeforeShop: _game.pauseGame,
+                ),
               ),
-            ),
-            Expanded(
-              child: _Entrance(
-                from: Offset.zero,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 14, 12, 10),
-                  // Marco con degradé y brillo: el corredor queda "enmarcado"
-                  // como una pantallita de arcade.
-                  child: Container(
-                    padding: const EdgeInsets.all(3.5),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(26),
-                      gradient: LinearGradient(
-                        colors: [scheme.primary, AppColors.gem, scheme.tertiary],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: scheme.primary.withValues(alpha: 0.35),
-                          blurRadius: 18,
-                          offset: const Offset(0, 6),
+              Expanded(
+                child: _Entrance(
+                  from: Offset.zero,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 14, 12, 10),
+                    // Marco con degradé y brillo: el corredor queda "enmarcado"
+                    // como una pantallita de arcade.
+                    child: Container(
+                      padding: const EdgeInsets.all(3.5),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(26),
+                        gradient: LinearGradient(
+                          colors: [
+                            scheme.primary,
+                            AppColors.gem,
+                            scheme.tertiary
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
                         ),
-                      ],
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(22.5),
-                      // El corredor y sus capas de interfaz (récord, pausa,
-                      // tutorial y resumen) comparten la misma área: los
-                      // widgets van encima del juego, sin tocar el header ni
-                      // la botonera.
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          GameWidget(game: _game),
-                          // Récord y diamantes de la corrida, arriba a la
-                          // izquierda (el HUD de power-ups ocupa la derecha,
-                          // en el canvas).
-                          Positioned(
-                            top: 10,
-                            left: 10,
-                            child: ValueListenableBuilder<bool>(
-                              valueListenable: state.isGameOver,
-                              builder: (_, over, __) => over
-                                  ? const SizedBox.shrink()
-                                  : Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        RecordChip(gameState: state),
-                                        const SizedBox(height: 6),
-                                        _LivesChip(gameState: state),
-                                        const SizedBox(height: 6),
-                                        _RunDiamondsChip(gameState: state),
-                                      ],
-                                    ),
-                            ),
-                          ),
-                          // Botón de pausa flotante, arriba al centro.
-                          Positioned(
-                            top: 10,
-                            left: 0,
-                            right: 0,
-                            child: Center(
-                              child: _PauseButton(
-                                game: _game,
-                                gameState: state,
-                                tutorialVisible: _tutorialVisible,
-                              ),
-                            ),
-                          ),
-                          // Cartelito de premios (hitos, desafíos cumplidos).
-                          Positioned(
-                            top: 62,
-                            left: 0,
-                            right: 0,
-                            child: IgnorePointer(
-                              child: _RewardToast(gameState: state),
-                            ),
-                          ),
-                          // Tutorial de la primera vez: deja pasar los gestos
-                          // al juego (ver TutorialOverlay).
-                          Positioned.fill(
-                            child: ValueListenableBuilder<bool>(
-                              valueListenable: _tutorialVisible,
-                              builder: (_, show, __) => AnimatedSwitcher(
-                                duration: const Duration(milliseconds: 300),
-                                child: show
-                                    ? TutorialOverlay(
-                                        key: const ValueKey('tutorial'),
-                                        game: _game,
-                                        onFinished: _finishTutorial,
-                                      )
-                                    : const SizedBox.shrink(
-                                        key: ValueKey('no-tutorial'),
-                                      ),
-                              ),
-                            ),
-                          ),
-                          // Pausa: velo semitransparente con el menú.
-                          Positioned.fill(
-                            child: ValueListenableBuilder<bool>(
-                              valueListenable: state.isPaused,
-                              builder: (_, paused, __) => AnimatedSwitcher(
-                                duration: const Duration(milliseconds: 220),
-                                child: paused
-                                    ? PauseOverlay(
-                                        key: const ValueKey('paused'),
-                                        gameState: state,
-                                        onResume: _game.resumeGame,
-                                        onRestart: _restartAfterAd,
-                                        onShowTutorial: _replayTutorial,
-                                      )
-                                    : const SizedBox.shrink(
-                                        key: ValueKey('running'),
-                                      ),
-                              ),
-                            ),
-                          ),
-                          // Resumen al morir: queda por encima de todo.
-                          Positioned.fill(
-                            child: ValueListenableBuilder<bool>(
-                              valueListenable: state.isGameOver,
-                              builder: (_, over, __) => AnimatedSwitcher(
-                                duration: const Duration(milliseconds: 220),
-                                child: over
-                                    ? GameOverOverlay(
-                                        key: const ValueKey('over'),
-                                        gameState: state,
-                                        onRestart: _restartAfterAd,
-                                        onRevive: _reviveWithAd,
-                                      )
-                                    : const SizedBox.shrink(
-                                        key: ValueKey('alive'),
-                                      ),
-                              ),
-                            ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: scheme.primary.withValues(alpha: 0.35),
+                            blurRadius: 18,
+                            offset: const Offset(0, 6),
                           ),
                         ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(22.5),
+                        // El corredor y sus capas de interfaz (récord, pausa,
+                        // tutorial y resumen) comparten la misma área: los
+                        // widgets van encima del juego, sin tocar el header ni
+                        // la botonera.
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            GameWidget(game: _game),
+                            // Récord y diamantes de la corrida, arriba a la
+                            // izquierda (el HUD de power-ups ocupa la derecha,
+                            // en el canvas).
+                            Positioned(
+                              top: 10,
+                              left: 10,
+                              child: ValueListenableBuilder<bool>(
+                                valueListenable: state.isGameOver,
+                                builder: (_, over, __) => over
+                                    ? const SizedBox.shrink()
+                                    : Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          RecordChip(gameState: state),
+                                          const SizedBox(height: 6),
+                                          _LivesChip(gameState: state),
+                                          const SizedBox(height: 6),
+                                          _RunDiamondsChip(gameState: state),
+                                        ],
+                                      ),
+                              ),
+                            ),
+                            // Botón de pausa flotante, arriba al centro.
+                            Positioned(
+                              top: 10,
+                              left: 0,
+                              right: 0,
+                              child: Center(
+                                child: _PauseButton(
+                                  game: _game,
+                                  gameState: state,
+                                  tutorialVisible: _tutorialVisible,
+                                ),
+                              ),
+                            ),
+                            // Cartelito de premios (hitos, desafíos cumplidos).
+                            Positioned(
+                              top: 62,
+                              left: 0,
+                              right: 0,
+                              child: IgnorePointer(
+                                child: _RewardToast(gameState: state),
+                              ),
+                            ),
+                            // Tutorial de la primera vez: deja pasar los gestos
+                            // al juego (ver TutorialOverlay).
+                            Positioned.fill(
+                              child: ValueListenableBuilder<bool>(
+                                valueListenable: _tutorialVisible,
+                                builder: (_, show, __) => AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 300),
+                                  child: show
+                                      ? TutorialOverlay(
+                                          key: const ValueKey('tutorial'),
+                                          game: _game,
+                                          onFinished: _finishTutorial,
+                                        )
+                                      : const SizedBox.shrink(
+                                          key: ValueKey('no-tutorial'),
+                                        ),
+                                ),
+                              ),
+                            ),
+                            // Pausa: velo semitransparente con el menú.
+                            Positioned.fill(
+                              child: ValueListenableBuilder<bool>(
+                                valueListenable: state.isPaused,
+                                builder: (_, paused, __) => AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 220),
+                                  child: paused
+                                      ? PauseOverlay(
+                                          key: const ValueKey('paused'),
+                                          gameState: state,
+                                          onResume: _game.resumeGame,
+                                          onRestart: _restartAfterAd,
+                                          onShowTutorial: _replayTutorial,
+                                        )
+                                      : const SizedBox.shrink(
+                                          key: ValueKey('running'),
+                                        ),
+                                ),
+                              ),
+                            ),
+                            // Resumen al morir: queda por encima de todo.
+                            Positioned.fill(
+                              child: ValueListenableBuilder<bool>(
+                                valueListenable: state.isGameOver,
+                                builder: (_, over, __) => AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 220),
+                                  child: over
+                                      ? GameOverOverlay(
+                                          key: const ValueKey('over'),
+                                          gameState: state,
+                                          onRestart: _restartAfterAd,
+                                          onRevive: _reviveWithAd,
+                                        )
+                                      : const SizedBox.shrink(
+                                          key: ValueKey('alive'),
+                                        ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-            _Entrance(
-              from: const Offset(0, 24),
-              child: GameControls(game: _game, gameState: state),
-            ),
-          ],
+              _Entrance(
+                from: const Offset(0, 24),
+                child: GameControls(game: _game, gameState: state),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -366,8 +386,7 @@ class _RewardToast extends StatelessWidget {
             child: Container(
               constraints: const BoxConstraints(maxWidth: 300),
               margin: const EdgeInsets.symmetric(horizontal: 20),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
               decoration: BoxDecoration(
                 color: const Color(0xFF0B1224).withValues(alpha: 0.88),
                 borderRadius: BorderRadius.circular(18),

@@ -25,9 +25,31 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     required this.gameState,
     this.hordeEnabled = true,
     this.zombiesEnabled = true,
-  });
+  }) {
+    // El tema se escucha desde el minuto cero (no recién cuando el motor
+    // arranca) y el fundido nace en el modo efectivo: así la primera vez que
+    // se dibuja el desierto ya sale con el día o la noche que corresponde.
+    _listenTheme();
+    _themeBlend = _themeTarget;
+  }
 
   final GameState gameState;
+
+  /// Fundido entre el desierto de día (0) y el nocturno (1).
+  ///
+  /// El cambio de tema no corta en seco: [advanceThemeFade] lo anima durante
+  /// [_themeFadeSeconds] y el mapa mezcla las dos paletas con ese valor.
+  double _themeBlend = 1;
+
+  /// true mientras los oyentes del tema están enganchados (para no duplicarlos
+  /// si el juego se vuelve a montar).
+  bool _listeningTheme = false;
+
+  /// Duración del fundido al alternar el tema, en segundos.
+  static const double _themeFadeSeconds = 0.35;
+
+  /// Blend actual del tema, expuesto para tests y previews.
+  double get themeBlend => _themeBlend;
 
   /// Horda de zombies que persigue al corredor desde atrás: si lo alcanza, es
   /// Game Over. Los tests que miden otra cosa (spawn, dibujo de recompensas)
@@ -184,9 +206,58 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
 
   @override
   Future<void> onLoad() async {
+    // Por si el juego se desmontó y se volvió a montar: los oyentes vuelven a
+    // engancharse y el fundido se re-sincroniza con el tema vigente.
+    _listenTheme();
+    _themeBlend = _themeTarget;
     _syncPerspective();
     _spawnPlayer();
     _applyStartUpgrades();
+  }
+
+  @override
+  void onRemove() {
+    _unlistenTheme();
+    super.onRemove();
+  }
+
+  void _listenTheme() {
+    if (_listeningTheme) return;
+    _listeningTheme = true;
+    gameState.themeMode.addListener(_onThemePreferenceChanged);
+    gameState.platformBrightness.addListener(_onThemePreferenceChanged);
+  }
+
+  void _unlistenTheme() {
+    if (!_listeningTheme) return;
+    _listeningTheme = false;
+    gameState.themeMode.removeListener(_onThemePreferenceChanged);
+    gameState.platformBrightness.removeListener(_onThemePreferenceChanged);
+  }
+
+  /// Blend (0..1) que corresponde al tema elegido ahora mismo.
+  double get _themeTarget => gameState.isDark ? 1.0 : 0.0;
+
+  /// El tema cambió: si el motor corre, [update] hace el fundido; si está
+  /// pausado (pausa, game over, tienda) no corre ningún frame, así que se
+  /// clava el valor y se pide un único paso para que el canvas repinte.
+  void _onThemePreferenceChanged() {
+    final target = _themeTarget;
+    if (_themeBlend == target || !paused) return;
+    _themeBlend = target;
+    stepEngine();
+  }
+
+  /// Avanza el fundido del tema hacia su valor objetivo. Lo llama [update]
+  /// cada frame; es público para que los tests midan la animación sin
+  /// montar el motor.
+  void advanceThemeFade(double dt) {
+    final target = _themeTarget;
+    if (_themeBlend == target) return;
+    final step = dt / _themeFadeSeconds;
+    _themeBlend = _themeBlend < target
+        ? min(target, _themeBlend + step)
+        : max(target, _themeBlend - step);
   }
 
   @override
@@ -206,6 +277,14 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
 
   @override
   void update(double dt) {
+    // Pausa del usuario: el mundo queda congelado. El motor está parado, así
+    // que esto solo corre si alguien pidió un paso puntual (repintar tras un
+    // cambio de tema) y ahí no se mueve nada.
+    if (gameState.isPaused.value) return;
+
+    // El fundido del tema se anima aunque la partida haya terminado.
+    advanceThemeFade(dt);
+
     if (gameState.isGameOver.value) {
       // El mundo queda congelado (sin super.update: nada se mueve ni
       // spawnerea) y solo se disipa el feedback del golpe final. Recién
@@ -242,7 +321,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     if (_wasAirborne && !_player.isAirborne) {
       juice.landDust(
         Offset(_player.position.x, _player.groundFeetY),
-        dark: gameState.themeMode.value == ThemeMode.dark,
+        blend: _themeBlend,
       );
     }
     _wasAirborne = _player.isAirborne;
@@ -332,8 +411,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
       zombie.targetLane = _player.lanePos;
       // Misma regla que los obstáculos: un solo golpe por cruce y nada
       // mientras dure la invulnerabilidad.
-      final touching =
-          !powerUps.isInvulnerable && zombie.collidesWith(_player);
+      final touching = !powerUps.isInvulnerable && zombie.collidesWith(_player);
       if (touching && !zombie.wasTouching) {
         _onCollision();
       }
@@ -876,7 +954,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     _map.render(
       canvas,
       _perspective,
-      dark: gameState.themeMode.value == ThemeMode.dark,
+      blend: _themeBlend,
       playerX: _player.position.x,
     );
     // La horda va debajo del corredor y los obstáculos (ellos se leen
@@ -891,7 +969,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     _map.renderGrade(
       canvas,
       _perspective,
-      dark: gameState.themeMode.value == ThemeMode.dark,
+      blend: _themeBlend,
     );
 
     canvas.restore();
@@ -1056,8 +1134,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
   /// +2 s por nivel sobre la base de 6 s (imán) y 8 s (x2).
   void _syncUpgrades() {
     powerUps
-      ..magnetDuration =
-          6 + 2.0 * gameState.upgradeLevel(UpgradeIds.magnet)
+      ..magnetDuration = 6 + 2.0 * gameState.upgradeLevel(UpgradeIds.magnet)
       ..multiplierDuration =
           8 + 2.0 * gameState.upgradeLevel(UpgradeIds.multiplier);
   }

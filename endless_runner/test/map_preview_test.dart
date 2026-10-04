@@ -28,7 +28,7 @@ void main() {
       for (var i = 0; i < 180; i++) {
         map.update(1 / 60, 300, p);
       }
-      map.render(canvas, p, dark: dark, playerX: w * 0.5);
+      map.render(canvas, p, blend: dark ? 1.0 : 0.0, playerX: w * 0.5);
 
       // Obstáculos de los tres tipos a distintas profundidades y carriles.
       final specs = [

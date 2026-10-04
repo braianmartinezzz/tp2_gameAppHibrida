@@ -176,10 +176,14 @@ class Juice {
   }
 
   /// Polvo al aterrizar: anillo aplastado apoyado en el piso + nube baja.
-  /// [dark] elige el tinte según el tema, para que el polvo se note igual en
-  /// la calle clara y en la oscura.
-  void landDust(Offset at, {required bool dark}) {
-    final dust = dark ? const Color(0xFFE9E4D8) : const Color(0xFF77725F);
+  /// [blend] (0 = día, 1 = noche) elige el tinte según el tema, para que el
+  /// polvo se note igual en la calle clara y en la oscura.
+  void landDust(Offset at, {required double blend}) {
+    final dust = Color.lerp(
+      const Color(0xFF77725F),
+      const Color(0xFFE9E4D8),
+      blend.clamp(0.0, 1.0).toDouble(),
+    )!;
     _addRing(
       at,
       r0: 4,

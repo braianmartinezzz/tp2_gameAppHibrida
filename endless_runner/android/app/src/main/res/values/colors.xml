@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Fondo de arranque y de la ventana, en sintonía con el scaffold de
+         Flutter (AppTheme.light) para que no parpadee otro color al abrir.
+         values-night define su propio valor. -->
+    <color name="launch_background">#F6F3FF</color>
+</resources>

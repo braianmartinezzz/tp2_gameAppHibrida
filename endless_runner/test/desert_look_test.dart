@@ -32,7 +32,7 @@ void main() {
     for (var i = 0; i < frames; i++) {
       map.update(1 / 60, 300, p);
     }
-    map.render(canvas, p, dark: dark, playerX: w * 0.5);
+    map.render(canvas, p, blend: dark ? 1.0 : 0.0, playerX: w * 0.5);
     final image = await recorder.endRecording().toImage(w, h);
     final bytes = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
     return bytes!.buffer.asUint8List();

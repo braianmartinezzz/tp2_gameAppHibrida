@@ -46,9 +46,33 @@ class GameState {
   final ValueNotifier<String> username = ValueNotifier('braian_123');
   final ValueNotifier<int> score = ValueNotifier(0);
   final ValueNotifier<int> diamonds = ValueNotifier(85);
-  final ValueNotifier<String> accountType = ValueNotifier('basic'); // 'basic' | 'pro'
+  final ValueNotifier<String> accountType =
+      ValueNotifier('basic'); // 'basic' | 'pro'
   final ValueNotifier<bool> isGameOver = ValueNotifier(false);
-  final ValueNotifier<ThemeMode> themeMode = ValueNotifier(ThemeMode.dark);
+
+  /// Tema elegido por el usuario. `system` (default) sigue al sistema
+  /// operativo: es el único estado que el canvas no puede resolver solo,
+  /// porque Flame no tiene [BuildContext].
+  final ValueNotifier<ThemeMode> themeMode = ValueNotifier(ThemeMode.system);
+
+  /// Brillo del sistema, espejado desde [WidgetsBindingObserver]
+  /// (`didChangePlatformBrightness`) para que el juego pueda resolver
+  /// [isDark] sin contexto. Arranca en oscuro (coincide con el look por
+  /// defecto del juego).
+  final ValueNotifier<Brightness> platformBrightness =
+      ValueNotifier(Brightness.dark);
+
+  /// Modo efectivo: resuelve `system` contra el brillo del sistema. Lo usan
+  /// el canvas de Flame y cualquier widget que necesite saber "¿es de noche?"
+  /// sin construir un árbol nuevo.
+  bool get isDark => themeMode.value == ThemeMode.system
+      ? platformBrightness.value == Brightness.dark
+      : themeMode.value == ThemeMode.dark;
+
+  /// Brillo efectivo para la UI de Flutter. `MaterialApp` resuelve `system`
+  /// solo, pero sirve para widgets fuera del árbol (barra de estado, etc).
+  Brightness get effectiveBrightness =>
+      isDark ? Brightness.dark : Brightness.light;
 
   /// Corazones que le quedan al jugador en la partida actual.
   final ValueNotifier<int> lives = ValueNotifier(maxLives);
@@ -150,8 +174,7 @@ class GameState {
     return _challenges;
   }
 
-  int challengeProgress(ChallengeDef c) =>
-      min(c.target, _progress[c.id] ?? 0);
+  int challengeProgress(ChallengeDef c) => min(c.target, _progress[c.id] ?? 0);
 
   bool isChallengeComplete(ChallengeDef c) => challengeProgress(c) >= c.target;
 
@@ -306,9 +329,17 @@ class GameState {
     accountType.value = isPro ? 'basic' : 'pro';
   }
 
-  void toggleTheme() {
-    themeMode.value =
-        themeMode.value == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
+  /// Cicla el tema: **Auto → Claro → Oscuro → Auto**.
+  ///
+  /// Se guarda en cuanto cambia para que un cierre de la app no pierda la
+  /// preferencia.
+  void cycleTheme() {
+    themeMode.value = switch (themeMode.value) {
+      ThemeMode.system => ThemeMode.light,
+      ThemeMode.light => ThemeMode.dark,
+      _ => ThemeMode.system,
+    };
+    save();
   }
 
   // --- Persistencia ----------------------------------------------------------
@@ -316,6 +347,11 @@ class GameState {
   Map<String, dynamic> toJson() => {
         'tutorialSeen': tutorialSeen.value,
         'swipeSensitivity': swipeSensitivity.value,
+        'theme': switch (themeMode.value) {
+          ThemeMode.system => 'system',
+          ThemeMode.light => 'light',
+          ThemeMode.dark => 'dark',
+        },
         'diamonds': diamonds.value,
         'upgrades': Map<String, int>.of(upgradeLevels.value),
         'milestones': claimedMilestones.toList(),
@@ -329,6 +365,17 @@ class GameState {
 
   void _applyJson(Map<String, dynamic> json) {
     tutorialSeen.value = json['tutorialSeen'] == true;
+    // Tema guardado. Saves viejos no traen la clave: se respeta el default
+    // (system) y no se pisa nada.
+    final savedTheme = json['theme'];
+    if (savedTheme is String) {
+      themeMode.value = switch (savedTheme) {
+        'light' => ThemeMode.light,
+        'dark' => ThemeMode.dark,
+        'system' => ThemeMode.system,
+        _ => themeMode.value,
+      };
+    }
     final sens = json['swipeSensitivity'];
     if (sens is num) {
       swipeSensitivity.value =

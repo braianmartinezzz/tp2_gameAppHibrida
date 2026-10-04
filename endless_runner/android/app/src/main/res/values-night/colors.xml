@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Versión nocturna del fondo de arranque: misma tinta que
+         AppTheme.dark. -->
+    <color name="launch_background">#14122B</color>
+</resources>

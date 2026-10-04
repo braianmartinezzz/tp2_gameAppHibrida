@@ -140,7 +140,15 @@ class MapRenderer {
 
   /// Separación lateral de cada detalle (misma unidad que `lateralFrac`).
   static const List<double> _bitLateral = [
-    1.5, 3.2, 2.1, 4.6, 1.0, 3.6, 5.2, 2.6, 4.0,
+    1.5,
+    3.2,
+    2.1,
+    4.6,
+    1.0,
+    3.6,
+    5.2,
+    2.6,
+    4.0,
   ];
   static const List<double> _bitWidthFrac = [0.07, 0.10, 0.05, 0.07];
   static const List<double> _bitHeightFrac = [0.05, 0.03, 0.065, 0.075];
@@ -268,14 +276,19 @@ class MapRenderer {
   /// Mantiene [value] en [0, mod) (módulo siempre positivo).
   static double _wrap(double value, double mod) => ((value % mod) + mod) % mod;
 
+  /// Dibuja el desierto completo.
+  ///
+  /// [blend] mezcla las dos paletas: 0 = día (tema claro), 1 = noche
+  /// estrellada (tema oscuro). El fundido lo maneja el juego
+  /// (`RunnerGame.themeBlend`), que lo anima al alternar el tema.
   void render(
     Canvas canvas,
     Perspective p, {
-    required bool dark,
+    required double blend,
     required double playerX,
   }) {
     if (p.width <= 0 || p.height <= 0) return;
-    final c = dark ? _dark : _light;
+    final c = _Palette.lerp(_light, _dark, blend);
     final w = p.width;
     final h = p.height;
     final vx = p.vanishX;
@@ -298,8 +311,8 @@ class MapRenderer {
     // Guiñada del fondo según la posición del jugador (parallax de cámara).
     final sway = -(playerX - vx);
 
-    // 2) Estrellas (solo de noche) --------------------------------------------
-    if (c.night) {
+    // 2) Estrellas (aparecen con la noche, atenuadas durante el fundido) -----
+    if (c.night > 0) {
       for (var i = 0; i < _stars.length; i++) {
         final star = _stars[i];
         final tw = 0.4 + 0.4 * sin(_time * 2.2 + star.dx * 47);
@@ -307,12 +320,12 @@ class MapRenderer {
         canvas.drawCircle(
           pos,
           1.0 + star.dy * 0.6,
-          Paint()..color = c.star.withValues(alpha: tw),
+          Paint()..color = c.star.withValues(alpha: tw * c.night),
         );
         // Una de cada nueve brilla con destello en cruz.
         if (i % 9 == 0) {
           final spark = Paint()
-            ..color = c.star.withValues(alpha: tw)
+            ..color = c.star.withValues(alpha: tw * c.night)
             ..strokeWidth = 1.2
             ..strokeCap = StrokeCap.round;
           final len = 3.5 + 2.5 * tw;
@@ -320,7 +333,7 @@ class MapRenderer {
           canvas.drawLine(pos.translate(0, -len), pos.translate(0, len), spark);
         }
       }
-      _drawShootingStar(canvas, w: w, vy: vy);
+      if (c.night >= 1) _drawShootingStar(canvas, w: w, vy: vy);
     }
 
     // 3) Luna o sol, con su halo ------------------------------------------------
@@ -329,8 +342,9 @@ class MapRenderer {
     // 4) Nubes de ceniza, humo lejano y cuervos -------------------------------------------------
     _drawClouds(canvas, w: w, baseY: vy, c: c, sway: sway);
     _drawSmokeColumns(canvas, w: w, vy: vy, c: c);
-    if (!c.night) {
-      _drawBirds(canvas, w: w, vy: vy, sway: sway);
+    if (c.night < 1) {
+      // De día vuelan; durante el fundido se desvanecen con la luz.
+      _drawBirds(canvas, w: w, vy: vy, sway: sway, amount: 1 - c.night);
     }
 
     // 5) Capas de parallax: pirámides, mesetas, dunas medias y cercanas --------
@@ -510,7 +524,11 @@ class MapRenderer {
     required double vy,
     required _Palette c,
   }) {
-    final smoke = c.night ? const Color(0xFF05060F) : const Color(0xFF3A2A24);
+    final smoke = Color.lerp(
+      const Color(0xFF3A2A24),
+      const Color(0xFF05060F),
+      c.night,
+    )!;
     for (final (fx, hf, phase) in const [
       (0.16, 0.78, 0.0),
       (0.58, 0.62, 1.7),
@@ -541,7 +559,8 @@ class MapRenderer {
   /// Capa final de ambientación, sobre todo el mundo y bajo el HUD: un velo
   /// sucio que apaga los colores, viñeta oscura en los bordes y ceniza
   /// flotando. Es lo que baja el tono de "juego infantil" a "fin del mundo".
-  void renderGrade(Canvas canvas, Perspective p, {required bool dark}) {
+  /// [blend] va de 0 (tema claro) a 1 (tema oscuro), igual que en [render].
+  void renderGrade(Canvas canvas, Perspective p, {required double blend}) {
     if (p.width <= 0 || p.height <= 0) return;
     final w = p.width;
     final h = p.height;
@@ -550,7 +569,8 @@ class MapRenderer {
     canvas.drawRect(
       rect,
       Paint()
-        ..color = const Color(0xFF2B1810).withValues(alpha: dark ? 0.10 : 0.20),
+        ..color =
+            const Color(0xFF2B1810).withValues(alpha: 0.20 - 0.10 * blend),
     );
     canvas.drawRect(
       rect,
@@ -560,7 +580,7 @@ class MapRenderer {
           max(w, h) * 0.75,
           [
             const Color(0x00000000),
-            const Color(0xFF000000).withValues(alpha: dark ? 0.55 : 0.50),
+            const Color(0xFF000000).withValues(alpha: 0.50 + 0.05 * blend),
           ],
           [0.55, 1.0],
         ),
@@ -568,7 +588,11 @@ class MapRenderer {
 
     // Ceniza que cae en diagonal (posiciones deterministas, sin Random).
     final ash = Paint()
-      ..color = (dark ? const Color(0xFFB8B0C8) : const Color(0xFFD9CBB8))
+      ..color = Color.lerp(
+        const Color(0xFFD9CBB8),
+        const Color(0xFFB8B0C8),
+        blend,
+      )!
           .withValues(alpha: 0.45);
     for (var i = 0; i < 26; i++) {
       final fx = _wrap(sin(i * 12.9898) * 43758.5453, 1.0);
@@ -590,9 +614,12 @@ class MapRenderer {
     required double vy,
     required _Palette c,
   }) {
-    final cx = c.night ? w * 0.24 : w * 0.76;
-    final cy = vy * (c.night ? 0.44 : 0.54);
-    final r = c.night ? 15.0 : 26.0;
+    // Durante el fundido el cuerpo cruza el cielo: el sol se retira por la
+    // derecha y la luna entra por la izquierda (nada de salto en seco).
+    final night = c.night;
+    final cx = w * (0.76 - 0.52 * night);
+    final cy = vy * (0.54 - 0.10 * night);
+    final r = 26.0 - 11.0 * night;
     // Halo: de noche tibio pero apagado, de día potente.
     canvas.drawCircle(
       Offset(cx, cy),
@@ -602,7 +629,7 @@ class MapRenderer {
           Offset(cx, cy),
           r * 3.4,
           [
-            c.bodyGlow.withValues(alpha: c.night ? 0.35 : 0.5),
+            c.bodyGlow.withValues(alpha: 0.5 - 0.15 * night),
             c.bodyGlow.withValues(alpha: 0.0),
           ],
         ),
@@ -610,30 +637,33 @@ class MapRenderer {
 
     canvas.drawCircle(Offset(cx, cy), r, Paint()..color = c.body);
 
-    if (c.night) {
-      // Dos cráteres para que se lea luna y no sol apagado.
+    // Dos cráteres para que se lea luna y no sol apagado: entran con la noche.
+    if (night > 0) {
+      final crater = Paint()..color = c.bodyShade.withValues(alpha: night);
       canvas.drawCircle(
         Offset(cx - r * 0.3, cy - r * 0.2),
         r * 0.22,
-        Paint()..color = c.bodyShade,
+        crater,
       );
       canvas.drawCircle(
         Offset(cx + r * 0.28, cy + r * 0.3),
         r * 0.15,
-        Paint()..color = c.bodyShade,
+        crater,
       );
-    } else {
-      // Sol sucio, velado por el humo: sin rayos ni cara.
+    }
+    // Sol sucio, velado por el humo: sin rayos ni cara. Se disipa al anochecer.
+    if (night < 1) {
       canvas.drawCircle(
         Offset(cx, cy),
         r,
-        Paint()..color = c.haze.withValues(alpha: 0.28),
+        Paint()..color = c.haze.withValues(alpha: 0.28 * (1 - night)),
       );
     }
   }
 
   /// Estrella fugaz de noche: cruza el cielo cada ~7 s en menos de un segundo.
-  void _drawShootingStar(Canvas canvas, {required double w, required double vy}) {
+  void _drawShootingStar(Canvas canvas,
+      {required double w, required double vy}) {
     const period = 7.0;
     const duration = 0.9;
     final local = _time % period;
@@ -685,13 +715,21 @@ class MapRenderer {
         ..addOval(Rect.fromCenter(
             center: Offset(x, y), width: 64 * s, height: 22 * s))
         ..addOval(Rect.fromCenter(
-            center: Offset(x - 22 * s, y + 4 * s), width: 40 * s, height: 18 * s))
+            center: Offset(x - 22 * s, y + 4 * s),
+            width: 40 * s,
+            height: 18 * s))
         ..addOval(Rect.fromCenter(
-            center: Offset(x + 24 * s, y + 3 * s), width: 44 * s, height: 19 * s))
+            center: Offset(x + 24 * s, y + 3 * s),
+            width: 44 * s,
+            height: 19 * s))
         ..addOval(Rect.fromCenter(
-            center: Offset(x - 6 * s, y - 8 * s), width: 34 * s, height: 22 * s))
+            center: Offset(x - 6 * s, y - 8 * s),
+            width: 34 * s,
+            height: 22 * s))
         ..addOval(Rect.fromCenter(
-            center: Offset(x + 12 * s, y - 5 * s), width: 28 * s, height: 18 * s));
+            center: Offset(x + 12 * s, y - 5 * s),
+            width: 28 * s,
+            height: 18 * s));
       canvas.drawPath(path.shift(Offset(0, 3 * s)), shade);
       canvas.drawPath(path, fill);
     }
@@ -703,9 +741,12 @@ class MapRenderer {
     required double w,
     required double vy,
     required double sway,
+
+    /// 1 = pleno día, 0 = noche: durante el fundido se desvanecen.
+    required double amount,
   }) {
     final paint = Paint()
-      ..color = const Color(0xFF14101A).withValues(alpha: 0.85)
+      ..color = const Color(0xFF14101A).withValues(alpha: 0.85 * amount)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.2
       ..strokeCap = StrokeCap.round;
@@ -721,7 +762,8 @@ class MapRenderer {
       final path = Path()
         ..moveTo(x - 7 * s, y - flap)
         ..quadraticBezierTo(x - 3.5 * s, y - 3 * s + flap * 0.3, x, y)
-        ..quadraticBezierTo(x + 3.5 * s, y - 3 * s + flap * 0.3, x + 7 * s, y - flap);
+        ..quadraticBezierTo(
+            x + 3.5 * s, y - 3 * s + flap * 0.3, x + 7 * s, y - flap);
       canvas.drawPath(path, paint);
     }
   }
@@ -786,7 +828,7 @@ class MapRenderer {
       final len = 30 + 70 * f;
       paint
         ..strokeWidth = 1 + 2 * f
-        ..color = c.stripe.withValues(alpha: c.night ? 0.16 : 0.30);
+        ..color = c.stripe.withValues(alpha: 0.30 - 0.14 * c.night);
       canvas.drawLine(Offset(x, y), Offset(x + len, y - len * 0.02), paint);
     }
   }
@@ -947,7 +989,9 @@ class MapRenderer {
     final tone = ((prop.style * 37) % 21 - 10) / 100; // -0.10 .. +0.10
     var base = _kindColor(kind);
     // De noche todo cae hacia el tinte del desierto lunar; de día, color puro.
-    if (c.night) base = Color.lerp(base, c.propNight, 0.45)!;
+    if (c.night > 0) {
+      base = Color.lerp(base, c.propNight, 0.45 * c.night)!;
+    }
     final lift = tone >= 0 ? const Color(0xFFFFFFFF) : const Color(0xFF000000);
     base = Color.lerp(base, lift, tone.abs())!;
 
@@ -1184,8 +1228,7 @@ class MapRenderer {
     canvas.clipPath(path);
     final light = Paint()
       ..color = const Color(0xFFFFFFFF).withValues(alpha: 0.14 * alpha);
-    final dark = Paint()
-      ..color = accent.color.withValues(alpha: 0.30 * alpha);
+    final dark = Paint()..color = accent.color.withValues(alpha: 0.30 * alpha);
     for (final (f0, f1, isLight) in const [
       (0.30, 0.40, true),
       (0.46, 0.58, false),
@@ -1318,7 +1361,7 @@ class MapRenderer {
   ) {
     final kind = bit.style % _bitKinds;
     Color tint(Color base) =>
-        c.night ? Color.lerp(base, c.propNight, 0.45)! : base;
+        c.night > 0 ? Color.lerp(base, c.propNight, 0.45 * c.night)! : base;
     final w = body.width;
     final cx = body.center.dx;
     final bottom = body.bottom;
@@ -1369,8 +1412,8 @@ class MapRenderer {
               height: r * 1.3,
             ),
             Paint()
-              ..color = Color.lerp(base, lift, tone.abs())!
-                  .withValues(alpha: alpha),
+              ..color =
+                  Color.lerp(base, lift, tone.abs())!.withValues(alpha: alpha),
           );
         }
       case 2: // huesos viejos
@@ -1413,7 +1456,8 @@ class MapRenderer {
             ),
             Radius.circular(capW * 0.5),
           ),
-          Paint()..color = tint(const Color(0xFF4E8C5A)).withValues(alpha: alpha),
+          Paint()
+            ..color = tint(const Color(0xFF4E8C5A)).withValues(alpha: alpha),
         );
     }
   }
@@ -1619,8 +1663,45 @@ class _Palette {
   final Color pyrLit;
   final Color pyrShade;
 
-  /// true en el tema oscuro (noche estrellada con luna).
-  final bool night;
+  /// 0 = día (tema claro), 1 = noche estrellada (tema oscuro). Se interpola
+  /// en [lerp] para fundir un tema con el otro.
+  final double night;
+
+  /// Mezcla paleta de día [a] con la de noche [b] según [t] (0..1).
+  ///
+  /// Es el fundido del cambio de tema: todo el color del desierto pasa de un
+  /// modo al otro sin cortar en seco.
+  static _Palette lerp(_Palette a, _Palette b, double t) {
+    final k = t.clamp(0.0, 1.0).toDouble();
+    Color mix(Color from, Color to) => Color.lerp(from, to, k)!;
+    return _Palette(
+      skyTop: mix(a.skyTop, b.skyTop),
+      skyBottom: mix(a.skyBottom, b.skyBottom),
+      star: mix(a.star, b.star),
+      body: mix(a.body, b.body),
+      bodyGlow: mix(a.bodyGlow, b.bodyGlow),
+      bodyShade: mix(a.bodyShade, b.bodyShade),
+      cloud: mix(a.cloud, b.cloud),
+      ridgeFar: mix(a.ridgeFar, b.ridgeFar),
+      ridgeLit: mix(a.ridgeLit, b.ridgeLit),
+      duneNear: mix(a.duneNear, b.duneNear),
+      sandFar: mix(a.sandFar, b.sandFar),
+      sandNear: mix(a.sandNear, b.sandNear),
+      shoulder: mix(a.shoulder, b.shoulder),
+      roadFar: mix(a.roadFar, b.roadFar),
+      roadNear: mix(a.roadNear, b.roadNear),
+      roadLine: mix(a.roadLine, b.roadLine),
+      stripe: mix(a.stripe, b.stripe),
+      haze: mix(a.haze, b.haze),
+      propNight: mix(a.propNight, b.propNight),
+      cloudShade: mix(a.cloudShade, b.cloudShade),
+      kerbA: mix(a.kerbA, b.kerbA),
+      kerbB: mix(a.kerbB, b.kerbB),
+      pyrLit: mix(a.pyrLit, b.pyrLit),
+      pyrShade: mix(a.pyrShade, b.pyrShade),
+      night: a.night + (b.night - a.night) * k,
+    );
+  }
 }
 
 const _Palette _dark = _Palette(
@@ -1648,7 +1729,7 @@ const _Palette _dark = _Palette(
   kerbB: Color(0xFF7C8196),
   pyrLit: Color(0xFF3B3358),
   pyrShade: Color(0xFF2A2342),
-  night: true,
+  night: 1,
 );
 
 const _Palette _light = _Palette(
@@ -1669,12 +1750,13 @@ const _Palette _light = _Palette(
   roadNear: Color(0xFF3E4249),
   roadLine: Color(0xFFE6DFC8),
   stripe: Color(0xFFFFFFFF),
-  haze: Color(0xFFE9B37C), // = skyBottom: se funde con el cielo, sin banda lechosa
+  haze: Color(
+      0xFFE9B37C), // = skyBottom: se funde con el cielo, sin banda lechosa
   propNight: Color(0xFF1A2233),
   cloudShade: Color(0x66584A44),
   kerbA: Color(0xFF7E2F2B),
   kerbB: Color(0xFFA9A293),
   pyrLit: Color(0xFFC99A62),
   pyrShade: Color(0xFF9E7143),
-  night: false,
+  night: 0,
 );
