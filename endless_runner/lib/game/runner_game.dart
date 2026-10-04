@@ -238,6 +238,8 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
       _scoreCarry -= wholeScore;
     }
     _difficultySpeed = 260 + (_elapsed * 6); // se acelera con el tiempo
+    // Las piernas siguen al piso: más rápido el mundo, más rápida la carrera.
+    _player.runRate = (_difficultySpeed / 260).clamp(1.0, 1.9).toDouble();
 
     // El piso avanza a la misma velocidad que el juego: la sensación de
     // carrera crece junto con la dificultad.

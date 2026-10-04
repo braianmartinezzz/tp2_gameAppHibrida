@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flame/components.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -23,11 +24,48 @@ class PlayerComponent extends PositionComponent {
   static const double playerSize = 34;
   static const String _characterSvgAsset =
       'assets/images/character/kenney_platformerCharacters/adventurer_vector.svg';
-  static const String _characterSpriteAsset =
-      'assets/images/character/sprites_corredor.png';
-  static const int _spriteCols = 4;
-  static const int _spriteRows = 2;
-  static const int _spriteFrameCount = 8;
+
+  /// Atlas del corredor (lo genera `tools/build_player_atlas.py` a partir de la
+  /// hoja original): celdas de 192x192 en 8 columnas. Los pies de todas las
+  /// poses apoyan en la misma fila, así que alcanza con anclar la celda.
+  static const String _atlasAsset = 'assets/images/character/player_atlas.png';
+  static const int _atlasCols = 8;
+  static const double _cell = 192;
+
+  /// Fila de los pies dentro de la celda y alto del personaje parado (en px de
+  /// celda): fijan la escala de dibujo.
+  static const double _cellFeetY = 186;
+  static const double _cellStandHeight = 150;
+
+  /// Alto en pantalla del personaje parado.
+  static const double _standHeightPx = 54;
+  static const double _drawScale = _standHeightPx / _cellStandHeight;
+
+  // Índices de las poses dentro del atlas.
+  static const int _runFrames = 8; // 0..7: ciclo de carrera
+  static const int _jumpCrouch = 8;
+  static const int _jumpRise = 9;
+  static const int _jumpApex = 10;
+  static const int _jumpFall = 11;
+  static const int _landing = 12;
+  static const int _slideIn = 13;
+  static const int _slideA = 14;
+  static const int _slideB = 15;
+  static const int _slideOut = 16;
+
+  /// Cuadros de carrera por segundo a velocidad base (sube con [runRate]).
+  static const double _runFps = 13;
+
+  /// Cuánto dura la pose de aterrizaje y el impulso previo al salto.
+  static const double _landDuration = 0.11;
+  static const double _takeoffDuration = 0.05;
+
+  /// Velocidad vertical (px/s) a partir de la cual se considera que sube o cae;
+  /// en medio queda la pose del punto más alto.
+  static const double _apexBand = 150;
+
+  /// Inclinación máxima (rad) al cambiar de carril.
+  static const double _maxLean = 0.13;
 
   /// Alto del jugador agachado: tiene que quedar por debajo de la banda del
   /// túnel ([ObstacleComponent] usa una banda 24..130 sobre el suelo).
@@ -76,6 +114,15 @@ class PlayerComponent extends PositionComponent {
   bool _pendingRoll = false;
   double _poseTime = 0;
 
+  /// Velocidad de la carrera respecto de la base (1 = 260 px/s de mundo). La
+  /// fija el juego cada frame: el corredor mueve las piernas al ritmo del piso.
+  double runRate = 1;
+
+  double _runPhase = 0; // en cuadros del ciclo de carrera
+  double _airTime = 0;
+  double _landTimer = 0;
+  double _lean = 0;
+
   double _groundY;
 
   /// Fila de suelo del jugador: la profundidad nunca cambia.
@@ -93,17 +140,16 @@ class PlayerComponent extends PositionComponent {
   /// Color base del cuerpo.
   static const Color _bodyColor = Color(0xFF378ADD);
 
-  /// Sprites del personaje cargados desde assets: la hoja de carreras se usa
-  /// como art principal del corredor, con fallback al SVG y luego al dibujo
-  /// geométrico viejo si falla la carga.
-  ui.Image? _spriteSheet;
+  /// Arte del personaje cargado desde assets: el atlas es el principal, con
+  /// fallback al SVG y luego al dibujo geométrico si falla la carga.
+  ui.Image? _atlas;
   bool _spriteArtLoaded = false;
 
   ui.Picture? _characterPicture;
   bool _characterArtLoaded = false;
 
   bool get hasCustomArt =>
-      (_spriteArtLoaded && _spriteSheet != null) ||
+      (_spriteArtLoaded && _atlas != null) ||
       (_characterArtLoaded && _characterPicture != null);
 
   /// Opacidad de dibujo (1 = sólido). RunnerGame la baja mientras dure la
@@ -123,17 +169,17 @@ class PlayerComponent extends PositionComponent {
 
   Future<void> _loadCharacterArt() async {
     try {
-      final data = await rootBundle.load(_characterSpriteAsset);
+      final data = await rootBundle.load(_atlasAsset);
       final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
       final frame = await codec.getNextFrame();
-      _spriteSheet = frame.image;
+      _atlas = frame.image;
       _spriteArtLoaded = true;
       _characterArtLoaded = false;
       _characterPicture = null;
       return;
     } catch (error, stackTrace) {
-      debugPrint('Failed to load player sprite sheet: $error\n$stackTrace');
-      _spriteSheet = null;
+      debugPrint('Failed to load player atlas: $error\n$stackTrace');
+      _atlas = null;
       _spriteArtLoaded = false;
     }
 
@@ -187,6 +233,11 @@ class PlayerComponent extends PositionComponent {
     rollTimer = 0;
     _pendingRoll = false;
     blinkAlpha = 1;
+    runRate = 1;
+    _runPhase = 0;
+    _airTime = 0;
+    _landTimer = 0;
+    _lean = 0;
     _groundY = startPosition.y;
     _syncGeometry();
   }
@@ -216,6 +267,7 @@ class PlayerComponent extends PositionComponent {
     }
 
     // Salto: integración semi-implícita de la parábola.
+    final wasAirborne = isAirborne;
     if (isAirborne) {
       jumpV -= gravity * dt;
       jumpY += jumpV * dt;
@@ -231,9 +283,50 @@ class PlayerComponent extends PositionComponent {
 
     if (rollTimer > 0) rollTimer -= dt;
 
+    // --- Animación ----------------------------------------------------------
+    _airTime = isAirborne ? _airTime + dt : 0;
+    if (wasAirborne && !isAirborne && !isRolling) _landTimer = _landDuration;
+    if (_landTimer > 0) _landTimer -= dt;
+    // Las piernas solo corren con los pies en el suelo y a ritmo del mundo.
+    if (!isAirborne && !isRolling) {
+      _runPhase = (_runPhase + dt * _runFps * runRate) % _runFrames;
+    }
+    // Inclinación al cambiar de carril: hacia donde va y suavizada.
+    final wantLean = isRolling
+        ? 0.0
+        : (lane - lanePos).clamp(-1.0, 1.0).toDouble() * _maxLean;
+    _lean += (wantLean - _lean) * math.min(1.0, dt * 16);
+
     _poseTime += dt;
     _syncGeometry();
   }
+
+  /// Cuadro del atlas que corresponde al estado actual: carrera, las fases del
+  /// salto (impulso, subida, punto más alto, caída, aterrizaje) o el agachado.
+  @visibleForTesting
+  int get poseFrame {
+    if (isRolling) {
+      final p = 1 - (rollTimer / rollDuration).clamp(0.0, 1.0);
+      if (p < 0.16) return _slideIn;
+      if (p > 0.84) return _slideOut;
+      // En el medio alterna dos cuadros: el "trote" agachado.
+      return (_poseTime * 11).floor().isEven ? _slideA : _slideB;
+    }
+    if (isAirborne) {
+      // Caída rápida (agacharse en el aire): ya va encogido.
+      if (_pendingRoll) return _slideIn;
+      if (_airTime < _takeoffDuration && jumpV > 0) return _jumpCrouch;
+      if (jumpV > _apexBand) return _jumpRise;
+      if (jumpV < -_apexBand) return _jumpFall;
+      return _jumpApex;
+    }
+    if (_landTimer > 0) return _landing;
+    return _runPhase.floor() % _runFrames;
+  }
+
+  /// Inclinación actual por cambio de carril, en radianes.
+  @visibleForTesting
+  double get lean => _lean;
 
   void _syncGeometry() {
     // La profundidad es la del suelo: la X del carril no varía al saltar.
@@ -249,8 +342,8 @@ class PlayerComponent extends PositionComponent {
   @override
   void render(Canvas canvas) {
     if (hasCustomArt) {
-      if (_spriteSheet != null && _spriteArtLoaded) {
-        _renderSpriteSheetCharacter(canvas);
+      if (_atlas != null && _spriteArtLoaded) {
+        _renderAtlasCharacter(canvas);
       } else {
         _renderSvgCharacter(canvas);
       }
@@ -295,53 +388,76 @@ class PlayerComponent extends PositionComponent {
     canvas.drawLine(Offset(cx, 26), Offset(cx + 6, 34), _paint);
   }
 
-  void _renderSpriteSheetCharacter(Canvas canvas) {
-    final sheet = _spriteSheet;
-    if (sheet == null) return;
+  final Paint _spritePaint = Paint()..filterQuality = FilterQuality.medium;
+  final Paint _shadowPaint = Paint();
 
-    final frameW = sheet.width / _spriteCols;
-    final frameH = sheet.height / _spriteRows;
-    final frameIndex =
-        (math.max(0.0, _poseTime * 10.0)).floor() % _spriteFrameCount;
-    final col = frameIndex % _spriteCols;
-    final row = (frameIndex / _spriteCols).floor();
+  void _renderAtlasCharacter(Canvas canvas) {
+    final atlas = _atlas;
+    if (atlas == null) return;
 
-    final src = Rect.fromLTWH(
-      col * frameW,
-      row * frameH,
-      frameW,
-      frameH,
-    );
+    final cx = size.x * 0.5;
+    final frame = poseFrame;
+    final col = frame % _atlasCols;
+    final row = frame ~/ _atlasCols;
+    final src = Rect.fromLTWH(col * _cell, row * _cell, _cell, _cell);
 
-    final bob = isAirborne ? 0.0 : math.sin(_poseTime * 12.0) * 2.0;
-    final lean = isAirborne ? 0.12 : math.sin(_poseTime * 10.0) * 0.12;
-    final rollBias = isRolling ? -0.26 : 0.0;
-
-    final dstW = size.x * 2.15;
-    final dstH = frameH * (dstW / frameW);
-    final spritePaint = Paint()..filterQuality = FilterQuality.high;
-
-    canvas.save();
-    canvas.translate(-size.x * 0.5, -dstH * 0.82 + bob);
-    canvas.rotate(lean + rollBias);
-
-    final shadow = Paint()
-      ..color = const Color(0xFF0F172A).withValues(alpha: 0.22)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7.0);
+    // Sombra en el SUELO (no en el cuerpo): al saltar queda abajo y se achica y
+    // se aclara con la altura, que es lo que da la sensación de salto.
+    final h = (jumpY / 110).clamp(0.0, 1.0);
+    final groundY = size.y + jumpY;
+    final shadowW = playerSize * (isRolling ? 1.15 : 0.95) * (1 - 0.35 * h);
+    final shadowA = (0.30 * (1 - 0.55 * h)) * blinkAlpha.clamp(0.0, 1.0);
+    _shadowPaint.color = const Color(0xFF0F172A).withValues(alpha: shadowA * 0.55);
     canvas.drawOval(
       Rect.fromCenter(
-        center: Offset(size.x * 0.5, dstH * 0.98),
-        width: size.x * 1.0,
-        height: size.y * 0.16,
+        center: Offset(cx, groundY),
+        width: shadowW * 1.35,
+        height: shadowW * 0.46,
       ),
-      shadow,
+      _shadowPaint,
+    );
+    _shadowPaint.color = const Color(0xFF0F172A).withValues(alpha: shadowA);
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(cx, groundY),
+        width: shadowW,
+        height: shadowW * 0.3,
+      ),
+      _shadowPaint,
     );
 
+    // Rebote de la carrera: sincronizado con los pasos (dos por ciclo), no un
+    // vaivén libre. Y estirar al subir / alargar al caer para dar peso.
+    var bob = 0.0;
+    var stretchY = 1.0;
+    var stretchX = 1.0;
+    if (!isAirborne && !isRolling && _landTimer <= 0) {
+      bob = -math.sin(_runPhase * math.pi / 2).abs() * 1.6;
+    } else if (isAirborne && !_pendingRoll) {
+      final v = (jumpV / jumpSpeed).clamp(-1.4, 1.0);
+      stretchY = 1 + 0.05 * v.abs();
+      stretchX = 1 - 0.035 * v.abs();
+    }
+
+    _spritePaint.color =
+        Color.fromRGBO(255, 255, 255, blinkAlpha.clamp(0.0, 1.0));
+
+    // Todo gira y escala alrededor de los PIES: así la inclinación no desplaza
+    // al personaje hacia los costados.
+    canvas.save();
+    canvas.translate(cx, size.y + bob);
+    canvas.rotate(_lean);
+    canvas.scale(stretchX, stretchY);
     canvas.drawImageRect(
-      sheet,
+      atlas,
       src,
-      Rect.fromLTWH(0, 0, dstW, dstH),
-      spritePaint,
+      Rect.fromLTWH(
+        -(_cell * 0.5) * _drawScale,
+        -_cellFeetY * _drawScale,
+        _cell * _drawScale,
+        _cell * _drawScale,
+      ),
+      _spritePaint,
     );
     canvas.restore();
   }
