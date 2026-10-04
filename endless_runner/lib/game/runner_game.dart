@@ -107,9 +107,21 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
 
   double _spawnCooldown = 0;
 
-  // Zombis: primer zombi a los 8 s; después la cadencia sube con la dificultad.
+  // Zombis: primer zombi a los 3 s; después la cadencia sube con la dificultad.
   double _zombieCooldown = _firstZombieDelay;
-  static const double _firstZombieDelay = 8.0;
+  static const double _firstZombieDelay = 3.0;
+
+  /// true cuando ya toca un zombi pero todavía hay un obstáculo muy fresco:
+  /// el spawner de obstáculos se frena hasta que el zombi pueda nacer. Sin
+  /// esto, apenas los obstáculos nacen más seguido que [_zombieClearance]
+  /// (a partir de ~10 s de partida) los zombis quedaban esperando para
+  /// siempre y no volvían a aparecer.
+  bool _zombieDue = false;
+
+  /// Zombis generados en la partida y últimos tipos: sirven para que los tres
+  /// tipos se vean desde el principio y no se repita el mismo muchas veces.
+  int _zombiesSpawned = 0;
+  final List<ZombieKind> _lastKinds = [];
 
   /// Segundos de separación mínima entre un zombi y el obstáculo fijo más
   /// cercano (en cualquier orden). Todos bajan a la misma velocidad, así que
@@ -250,9 +262,12 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
 
     _spawnCooldown -= dt;
     if (_spawnCooldown <= 0) {
-      if (zombiesEnabled && _sinceZombieSpawn < _zombieClearance) {
-        // Acaba de nacer un zombi: el obstáculo espera para no apelotonarse.
-        _spawnCooldown = _zombieClearance - _sinceZombieSpawn;
+      if (zombiesEnabled &&
+          (_zombieDue || _sinceZombieSpawn < _zombieClearance)) {
+        // Acaba de nacer un zombi (o está por nacer): el obstáculo espera
+        // para no apelotonarse.
+        _spawnCooldown =
+            _zombieDue ? 0.1 : _zombieClearance - _sinceZombieSpawn;
       } else {
         _spawnObstacle();
         _spawnCooldown = max(0.45, 1.1 - _elapsed * 0.01);
@@ -263,9 +278,12 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
       _zombieCooldown -= dt;
       if (_zombieCooldown <= 0) {
         if (_sinceObstacleSpawn < _zombieClearance) {
-          _zombieCooldown = _zombieClearance - _sinceObstacleSpawn;
+          // Obstáculo muy reciente: se frenan los nuevos obstáculos hasta
+          // que se cumpla la separación y el zombi pueda salir.
+          _zombieDue = true;
         } else {
           spawnZombie();
+          _zombieDue = false;
           _zombieCooldown = _nextZombieDelay();
         }
       }
@@ -403,10 +421,30 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
 
   // --- Zombis móviles ----------------------------------------------------------
 
-  /// Segundos hasta el próximo zombi: de ~6 s al principio a ~2,8 s con la
-  /// dificultad máxima, más un poco de azar.
+  /// Segundos hasta el próximo zombi: de ~3,2-4,5 s al principio a ~1,8-3,1 s
+  /// con la dificultad máxima (el azar suma hasta 1,3 s).
   double _nextZombieDelay() =>
-      6.0 - 3.2 * zombieDifficulty + _rng.nextDouble() * 1.5;
+      3.2 - 1.4 * zombieDifficulty + _rng.nextDouble() * 1.3;
+
+  /// Elige el tipo del próximo zombi: los primeros tres son uno de cada tipo
+  /// (lento, normal, rápido) para que el jugador conozca a los tres; después
+  /// manda [ZombieKind.roll], sin repetir el mismo tipo más de dos veces
+  /// seguidas.
+  ZombieKind _pickZombieKind(double difficulty) {
+    var kind = ZombieKind.roll(difficulty, _rng.nextDouble());
+    if (_zombiesSpawned < ZombieKind.values.length) {
+      kind = ZombieKind.values[_zombiesSpawned];
+    } else if (_lastKinds.length >= 2 &&
+        _lastKinds[_lastKinds.length - 1] == kind &&
+        _lastKinds[_lastKinds.length - 2] == kind) {
+      final others = ZombieKind.values.where((k) => k != kind).toList();
+      kind = others[_rng.nextInt(others.length)];
+    }
+    _zombiesSpawned++;
+    _lastKinds.add(kind);
+    if (_lastKinds.length > 4) _lastKinds.removeAt(0);
+    return kind;
+  }
 
   /// Carril de base de un zombi nuevo según su tipo.
   double _zombieHomeLane(ZombieKind kind) {
@@ -428,7 +466,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
   /// rápido arranca en un carril cualquiera y después persigue al jugador.
   ZombieObstacle spawnZombie({ZombieKind? kind, double? lane}) {
     final difficulty = zombieDifficulty;
-    final chosen = kind ?? ZombieKind.roll(difficulty, _rng.nextDouble());
+    final chosen = kind ?? _pickZombieKind(difficulty);
     final home = lane ?? _zombieHomeLane(chosen);
     final zombie = ZombieObstacle(
       lane: home,
@@ -786,6 +824,13 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     }
     super.render(canvas);
     juice.render(canvas);
+    // Ambientación final (velo, viñeta, ceniza): integra horda, zombis y
+    // obstáculos en la misma atmósfera.
+    _map.renderGrade(
+      canvas,
+      _perspective,
+      dark: gameState.themeMode.value == ThemeMode.dark,
+    );
 
     canvas.restore();
 
@@ -883,6 +928,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     }
     _zombies.clear();
     _zombieCooldown = _firstZombieDelay;
+    _zombieDue = false;
     _sinceObstacleSpawn = 0;
     _sinceZombieSpawn = 0;
     horde.revive();
@@ -909,6 +955,9 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     }
     _zombies.clear();
     _zombieCooldown = _firstZombieDelay;
+    _zombieDue = false;
+    _zombiesSpawned = 0;
+    _lastKinds.clear();
     _sinceObstacleSpawn = 999;
     _sinceZombieSpawn = 999;
     for (final coin in _coins) {

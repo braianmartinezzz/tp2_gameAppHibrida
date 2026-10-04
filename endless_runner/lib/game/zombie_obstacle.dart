@@ -103,7 +103,7 @@ enum ZombieKind {
   final Color eyes;
 
   /// Dificultad (0..1) a partir de la cual puede aparecer el zombi rápido.
-  static const double fastUnlock = 0.2;
+  static const double fastUnlock = 0.08;
 
   /// Elige el tipo según la [difficulty] (0..1) y un número [roll] (0..1).
   ///

@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flame/components.dart';
 import 'package:flutter/material.dart';
 
@@ -41,10 +43,8 @@ class ObstacleComponent extends DepthComponent {
   /// Tamaño de referencia en la línea base (t = 1).
   static const double baseSize = 44;
 
-  static const Color _red = Color(0xFFE24B4A);
-  static const Color _redDark = Color(0xFF8E2B2A);
-  static const Color _hazard = Color(0xFFF2B33D);
-  static const Color _hazardDark = Color(0xFF2B2318);
+  static const Color _ink = Color(0xFF1B1A17);
+  static const Color _rustColor = Color(0xFF8B4A1E);
 
   /// Obstáculo a dibujar (define la banda de altura).
   final ObstacleKind kind;
@@ -115,145 +115,350 @@ class ObstacleComponent extends DepthComponent {
     }
   }
 
-  /// Valla baja: barra ámbar con franjas oscuras (se salta).
+  /// Mancha de óxido: óvalo marrón anaranjado, translúcido.
+  void _rust(Canvas canvas, Rect r, double a, {double opacity = 0.35}) {
+    canvas.drawOval(
+      r,
+      Paint()..color = _rustColor.withValues(alpha: opacity * a),
+    );
+  }
+
+  /// Barrera de concreto agrietada con restos de cinta de peligro y alambre
+  /// de púas encima (se salta).
   void _drawBarrier(Canvas canvas, double w, double h) {
     final a = alpha;
-    final body = RRect.fromRectAndRadius(
-      Rect.fromLTWH(0, 0, w, h),
-      Radius.circular((h * 0.28).clamp(1.0, 6.0)),
-    );
-    // Relleno con degradé vertical: más claro arriba, da volumen a la valla.
-    canvas.drawRRect(
+    final rect = Rect.fromLTWH(0, 0, w, h);
+    final body = Path()
+      ..moveTo(w * 0.02, h)
+      ..lineTo(w * 0.12, h * 0.05)
+      ..lineTo(w * 0.88, h * 0.05)
+      ..lineTo(w * 0.98, h)
+      ..close();
+    canvas.drawPath(
       body,
       Paint()
         ..shader = LinearGradient(
           colors: [
-            const Color(0xFFFFD36B).withValues(alpha: a),
-            _hazard.withValues(alpha: a),
+            const Color(0xFFA7A398).withValues(alpha: a),
+            const Color(0xFF55524B).withValues(alpha: a),
           ],
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-        ).createShader(Rect.fromLTWH(0, 0, w, h)),
+        ).createShader(rect),
     );
-    final dark = Paint()..color = _hazardDark.withValues(alpha: 0.85 * a);
-    for (var i = 0; i < 3; i++) {
-      canvas.drawRect(
-        Rect.fromLTWH(w * (0.2 + i * 0.26), h * 0.18, w * 0.09, h * 0.64),
-        dark,
+
+    canvas.save();
+    canvas.clipPath(body);
+    // Franjas de peligro desteñidas en la parte alta.
+    final stripe = Paint()
+      ..color = const Color(0xFFB8963A).withValues(alpha: 0.75 * a);
+    final step = max(4.0, w / 7);
+    final bandBottom = h * 0.55;
+    for (var x = -h; x < w + h; x += step * 2) {
+      canvas.drawPath(
+        Path()
+          ..moveTo(x, bandBottom)
+          ..lineTo(x + step, bandBottom)
+          ..lineTo(x + step + bandBottom, 0)
+          ..lineTo(x + bandBottom, 0)
+          ..close(),
+        stripe,
       );
     }
-    canvas.drawRRect(
+    // Mugre acumulada abajo y una mancha de óxido.
+    canvas.drawRect(
+      Rect.fromLTWH(0, h * 0.62, w, h * 0.38),
+      Paint()..color = _ink.withValues(alpha: 0.30 * a),
+    );
+    _rust(canvas, Rect.fromLTWH(w * 0.55, h * 0.4, w * 0.3, h * 0.35), a);
+    canvas.restore();
+
+    // Grieta en el concreto.
+    canvas.drawPath(
+      Path()
+        ..moveTo(w * 0.36, h * 0.05)
+        ..lineTo(w * 0.42, h * 0.38)
+        ..lineTo(w * 0.35, h * 0.62)
+        ..lineTo(w * 0.40, h),
+      Paint()
+        ..color = _ink.withValues(alpha: 0.65 * a)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = max(0.8, w * 0.012),
+    );
+    canvas.drawPath(
       body,
       Paint()
-        ..color = const Color(0xFF1B2233).withValues(alpha: 0.5 * a)
+        ..color = _ink.withValues(alpha: 0.6 * a)
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.3,
+        ..strokeWidth = 1.2,
     );
+
+    // Alambre de púas enrollado sobre el borde superior.
+    final wire = Paint()
+      ..color = const Color(0xFF26231F).withValues(alpha: 0.9 * a)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = max(1.0, w * 0.02);
+    final wy = -h * 0.28;
+    const waves = 8;
+    final coil = Path()..moveTo(w * 0.06, wy);
+    for (var i = 0; i < waves; i++) {
+      final x1 = w * (0.06 + 0.88 * (i + 1) / waves);
+      final x0 = w * (0.06 + 0.88 * i / waves);
+      coil.quadraticBezierTo(
+        (x0 + x1) * 0.5,
+        wy + (i.isEven ? -h * 0.5 : h * 0.5),
+        x1,
+        wy,
+      );
+    }
+    canvas.drawPath(coil, wire);
+    final barb = max(1.0, w * 0.025);
+    for (var i = 1; i < waves; i++) {
+      final x = w * (0.06 + 0.88 * i / waves);
+      canvas.drawLine(Offset(x - barb, wy - barb), Offset(x + barb, wy + barb), wire);
+      canvas.drawLine(Offset(x - barb, wy + barb), Offset(x + barb, wy - barb), wire);
+    }
+    for (final fx in const [0.1, 0.9]) {
+      canvas.drawLine(Offset(w * fx, wy), Offset(w * fx, h * 0.08), wire);
+    }
   }
 
-  /// Losa colgante con franjas de peligro (hay que agacharse).
+  /// Chapa de acero oxidada y agujereada, en alto sobre dos postes
+  /// retorcidos (hay que agacharse).
   void _drawOverhead(Canvas canvas, double w, double h, double groundY) {
     final a = alpha;
-    final border = Paint()
-      ..color = const Color(0xFF1B2233).withValues(alpha: 0.55 * a)
+
+    // Postes torcidos que la sostienen (a los costados: se pasa por debajo).
+    final post = Paint()
+      ..color = const Color(0xFF2A2724).withValues(alpha: a)
+      ..strokeWidth = max(2.0, w * 0.09)
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(Offset(w * 0.08, h), Offset(w * 0.03, groundY), post);
+    canvas.drawLine(Offset(w * 0.92, h), Offset(w * 0.98, groundY), post);
+
+    // Cables cortados que cuelgan del borde inferior.
+    final cable = Paint()
+      ..color = _ink.withValues(alpha: 0.85 * a)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
+      ..strokeWidth = max(1.0, w * 0.025);
+    final drop = (groundY - h) * 0.35;
+    for (final (fx, bend) in const [(0.3, 0.05), (0.68, -0.06)]) {
+      canvas.drawPath(
+        Path()
+          ..moveTo(w * fx, h)
+          ..quadraticBezierTo(
+            w * (fx + bend),
+            h + drop * 0.6,
+            w * (fx + bend * 0.4),
+            h + drop,
+          ),
+        cable,
+      );
+    }
 
-    // Patas que la sostienen desde el suelo (fuera de la banda de colisión:
-    // están a los costados, el jugador pasa por debajo).
-    final leg = Paint()..color = _hazardDark.withValues(alpha: a);
-    final legW = (w * 0.07).clamp(2.0, 8.0);
-    canvas.drawRect(Rect.fromLTWH(0, h, legW, groundY - h), leg);
-    canvas.drawRect(Rect.fromLTWH(w - legW, h, legW, groundY - h), leg);
-
-    final body = Rect.fromLTWH(0, 0, w, h);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        body,
-        Radius.circular((w * 0.08).clamp(1.0, 6.0)),
-      ),
-      Paint()..color = _hazard.withValues(alpha: a),
+    final rect = Rect.fromLTWH(0, 0, w, h);
+    // Panel con el borde superior desgarrado.
+    final panel = Path()
+      ..moveTo(0, h * 0.04)
+      ..lineTo(w * 0.3, 0)
+      ..lineTo(w * 0.46, h * 0.035)
+      ..lineTo(w * 0.7, h * 0.005)
+      ..lineTo(w, h * 0.03)
+      ..lineTo(w * 0.98, h)
+      ..lineTo(w * 0.02, h)
+      ..close();
+    canvas.drawPath(
+      panel,
+      Paint()
+        ..shader = LinearGradient(
+          colors: [
+            const Color(0xFF626B73).withValues(alpha: a),
+            const Color(0xFF2F3439).withValues(alpha: a),
+          ],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ).createShader(rect),
     );
 
-    // Franjas diagonales de peligro, recortadas a la losa.
     canvas.save();
-    canvas.clipRRect(
-      RRect.fromRectAndRadius(
-        body,
-        Radius.circular((w * 0.08).clamp(1.0, 6.0)),
-      ),
-    );
-    final stripe = Paint()..color = _hazardDark.withValues(alpha: 0.9 * a);
-    final step = w / 3.0;
-    for (var i = -2; i < 6; i++) {
+    canvas.clipPath(panel);
+    // Óxido en las esquinas y chorreras.
+    _rust(canvas, Rect.fromLTWH(-w * 0.1, h * 0.55, w * 0.7, h * 0.5), a, opacity: 0.45);
+    _rust(canvas, Rect.fromLTWH(w * 0.55, -h * 0.1, w * 0.6, h * 0.35), a, opacity: 0.4);
+    final streak = Paint()
+      ..color = _rustColor.withValues(alpha: 0.4 * a)
+      ..strokeWidth = max(1.0, w * 0.04);
+    for (final fx in const [0.2, 0.52, 0.8]) {
+      canvas.drawLine(Offset(w * fx, h * 0.1), Offset(w * fx, h * (0.45 + fx * 0.4)), streak);
+    }
+    // Franjas de peligro casi borradas en el borde inferior.
+    final hazard = Paint()
+      ..color = const Color(0xFFB8963A).withValues(alpha: 0.5 * a);
+    final bandTop = h * 0.84;
+    final step = w / 4.0;
+    for (var i = -2; i < 7; i++) {
       final x = i * step;
       canvas.drawPath(
         Path()
           ..moveTo(x, h)
           ..lineTo(x + step * 0.5, h)
-          ..lineTo(x + step * 0.5 + h, 0)
-          ..lineTo(x + h, 0)
+          ..lineTo(x + step * 0.5 + (h - bandTop), bandTop)
+          ..lineTo(x + (h - bandTop), bandTop)
           ..close(),
-        stripe,
+        hazard,
       );
     }
+    // Una X de aerosol rojo, a medio borrar.
+    final spray = Paint()
+      ..color = const Color(0xFF8C1C1C).withValues(alpha: 0.6 * a)
+      ..strokeWidth = max(2.0, w * 0.09)
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(Offset(w * 0.28, h * 0.22), Offset(w * 0.72, h * 0.68), spray);
+    canvas.drawLine(Offset(w * 0.72, h * 0.2), Offset(w * 0.3, h * 0.7), spray);
+    // Agujeros de bala.
+    for (final (fx, fy) in const [(0.18, 0.3), (0.82, 0.42), (0.62, 0.15)]) {
+      final c = Offset(w * fx, h * fy);
+      final r = max(1.2, w * 0.035);
+      canvas.drawCircle(c, r * 1.6, Paint()..color = _ink.withValues(alpha: 0.25 * a));
+      canvas.drawCircle(c, r, Paint()..color = _ink.withValues(alpha: 0.9 * a));
+    }
     canvas.restore();
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        body,
-        Radius.circular((w * 0.08).clamp(1.0, 6.0)),
-      ),
-      border,
+
+    // Remaches en los bordes.
+    final rivet = Paint()..color = _ink.withValues(alpha: 0.55 * a);
+    final rr = max(1.0, w * 0.02);
+    for (var i = 0; i < 5; i++) {
+      final y = h * (0.12 + 0.19 * i);
+      canvas.drawCircle(Offset(w * 0.06, y), rr, rivet);
+      canvas.drawCircle(Offset(w * 0.94, y), rr, rivet);
+    }
+    canvas.drawPath(
+      panel,
+      Paint()
+        ..color = _ink.withValues(alpha: 0.65 * a)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.4,
     );
   }
 
-  /// Contenedor alto con tapa y costuras (hay que esquivarlo de carril).
+  /// Dos contenedores de carga apilados, oxidados y abollados (hay que
+  /// esquivarlos de carril).
   void _drawBlock(Canvas canvas, double w, double h) {
     final a = alpha;
-    final body = RRect.fromRectAndRadius(
-      Rect.fromLTWH(0, 0, w, h),
-      Radius.circular((w * 0.12).clamp(1.0, 7.0)),
+    final gap = max(1.0, h * 0.012);
+    final half = (h - gap) * 0.5;
+    // El de arriba, más chico y corrido, como si lo hubieran tirado encima.
+    final top = Rect.fromLTWH(w * 0.04, 0, w * 0.92, half);
+    final bottom = Rect.fromLTWH(0, half + gap, w, half);
+    _drawContainer(canvas, bottom, const Color(0xFF7D3B2E), a, smear: true);
+    _drawContainer(canvas, top, const Color(0xFF3F5B57), a);
+  }
+
+  /// Un contenedor visto de frente: chapa corrugada, puertas con barras,
+  /// óxido y marco oscuro.
+  void _drawContainer(
+    Canvas canvas,
+    Rect r,
+    Color base,
+    double a, {
+    bool smear = false,
+  }) {
+    final dark = Color.lerp(base, Colors.black, 0.5)!;
+    final light = Color.lerp(base, Colors.white, 0.12)!;
+    final frame = RRect.fromRectAndRadius(
+      r,
+      Radius.circular(max(1.0, r.width * 0.04)),
     );
-    // Degradé rojo: tapa luminosa arriba y sombra abajo (efecto 3D de caja).
     canvas.drawRRect(
-      body,
+      frame,
       Paint()
         ..shader = LinearGradient(
           colors: [
-            const Color(0xFFFF8A80).withValues(alpha: a),
-            _red.withValues(alpha: a),
-            _redDark.withValues(alpha: a),
+            light.withValues(alpha: a),
+            base.withValues(alpha: a),
+            dark.withValues(alpha: a),
           ],
-          stops: const [0.0, 0.4, 1.0],
+          stops: const [0.0, 0.45, 1.0],
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-        ).createShader(Rect.fromLTWH(0, 0, w, h)),
+        ).createShader(r),
     );
 
-    // Tapa superior más clara: da volumen al bloque.
-    canvas.drawRect(
-      Rect.fromLTWH(w * 0.08, h * 0.06, w * 0.84, h * 0.1),
-      Paint()..color = const Color(0xFFF2706F).withValues(alpha: a),
+    // Corrugado vertical.
+    final rib = Paint()
+      ..color = dark.withValues(alpha: 0.45 * a)
+      ..strokeWidth = max(0.8, r.width * 0.025);
+    const ribs = 9;
+    for (var i = 1; i < ribs; i++) {
+      final x = r.left + r.width * i / ribs;
+      canvas.drawLine(
+        Offset(x, r.top + r.height * 0.07),
+        Offset(x, r.bottom - r.height * 0.07),
+        rib,
+      );
+    }
+
+    // Óxido y chorreras.
+    _rust(
+      canvas,
+      Rect.fromLTWH(r.left + r.width * 0.08, r.bottom - r.height * 0.38,
+          r.width * 0.4, r.height * 0.3),
+      a,
     );
-    // Costuras verticales.
-    final dark = Paint()..color = _redDark.withValues(alpha: 0.7 * a);
-    canvas.drawRect(Rect.fromLTWH(w * 0.2, h * 0.2, w * 0.07, h * 0.74), dark);
-    canvas.drawRect(Rect.fromLTWH(w * 0.73, h * 0.2, w * 0.07, h * 0.74), dark);
-    // Reflejo vertical sobre el costado izquierdo.
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(w * 0.05, h * 0.2, w * 0.06, h * 0.7),
-        Radius.circular(w * 0.03),
-      ),
-      Paint()..color = const Color(0xFFFFFFFF).withValues(alpha: 0.28 * a),
+    _rust(
+      canvas,
+      Rect.fromLTWH(r.left + r.width * 0.6, r.top + r.height * 0.05,
+          r.width * 0.3, r.height * 0.22),
+      a,
+      opacity: 0.28,
     );
 
+    if (smear) {
+      // Manchas oscuras que chorrean: nadie usó esto como escondite.
+      final blood = Paint()
+        ..color = const Color(0xFF4A0E0E).withValues(alpha: 0.55 * a)
+        ..strokeWidth = max(1.0, r.width * 0.05)
+        ..strokeCap = StrokeCap.round;
+      for (final (fx, len) in const [(0.28, 0.5), (0.34, 0.3), (0.7, 0.42)]) {
+        canvas.drawLine(
+          Offset(r.left + r.width * fx, r.top + r.height * 0.2),
+          Offset(r.left + r.width * fx, r.top + r.height * (0.2 + len)),
+          blood,
+        );
+      }
+    }
+
+    // Barras y manijas de las puertas.
+    final bar = Paint()
+      ..color = _ink.withValues(alpha: 0.7 * a)
+      ..strokeWidth = max(1.0, r.width * 0.05)
+      ..strokeCap = StrokeCap.round;
+    for (final fx in const [0.4, 0.6]) {
+      canvas.drawLine(
+        Offset(r.left + r.width * fx, r.top + r.height * 0.14),
+        Offset(r.left + r.width * fx, r.bottom - r.height * 0.14),
+        bar,
+      );
+    }
+    final handle = Paint()
+      ..color = const Color(0xFFB9B2A4).withValues(alpha: 0.7 * a)
+      ..strokeWidth = max(1.0, r.width * 0.035)
+      ..strokeCap = StrokeCap.round;
+    for (final fx in const [0.37, 0.63]) {
+      canvas.drawLine(
+        Offset(r.left + r.width * fx, r.center.dy - r.height * 0.06),
+        Offset(r.left + r.width * fx, r.center.dy + r.height * 0.06),
+        handle,
+      );
+    }
+
+    // Marco oscuro.
     canvas.drawRRect(
-      body,
+      frame,
       Paint()
-        ..color = const Color(0xFF1B2233).withValues(alpha: 0.55 * a)
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5,
+        ..strokeWidth = max(1.0, r.width * 0.05)
+        ..color = dark.withValues(alpha: 0.85 * a),
     );
   }
 
