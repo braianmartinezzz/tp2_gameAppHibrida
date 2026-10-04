@@ -23,7 +23,13 @@ import 'perspective.dart';
 ///  8. detalles simpáticos para el público infantil: sol sonriente con rayos,
 ///     pájaros y globo aerostático de día, estrella fugaz de noche,
 ///     pirámides lejanas, cordones rojo/blanco en la orilla del asfalto,
-///     cactus con carita y florcitas, matas y piedritas junto al camino.
+///     cactus con carita y florcitas, matas y piedritas junto al camino,
+///  9. **detalles del asfalto** (grietas, manchas de aceite, frenadas, arena
+///     que invade la ruta y parches), que viajan en coordenada de mundo,
+/// 10. **biomas por distancia**: desierto → ruinas → cañón → desierto...
+///     ([biomeAt]). Cambian la paleta (mezcla suave) y los props que nacen
+///     al fondo: postes, autos abandonados, barandas y edificios rotos en
+///     las ruinas; pilares de roca en el cañón.
 ///
 /// Mantiene su propio estado de animación (tiempo, profundidad de rayas,
 /// manchones y props) para que el mapa avance incluso sin obstáculos.
@@ -33,6 +39,7 @@ class MapRenderer {
     _sortPropsFarToNear();
     _bits.addAll(_seedBits());
     _sortBitsFarToNear();
+    _decals.addAll(_seedDecals());
     // Campo de estrellas determinista: mismas estrellas en cada corrida.
     final rnd = Random(7);
     _stars.addAll(
@@ -71,24 +78,113 @@ class MapRenderer {
   static const double _propFadeInZ = 3.2;
   static const double _propFadeOutZ = 3.98;
 
-  /// Tipos de prop (`style % _kindCount`): cactus, roca, arbusto seco,
-  /// meseta y cartel de ruta.
-  static const int _kindCount = 5;
+  /// Tipos de prop (`style % _kindStride`):
+  ///   0 cactus, 1 roca, 2 arbusto seco, 3 meseta, 4 cartel de ruta (desierto),
+  ///   5 poste de luz, 6 auto abandonado, 7 guardarraíl, 8 edificio en ruinas,
+  ///   9 alambrado roto (ruinas) y 10 pilar de roca (cañón).
+  ///
+  /// El paso del código de estilo es 15, múltiplo de 5: así `style % 5` sigue
+  /// devolviendo el tipo original (0..4) de los props del desierto.
+  static const int _kindStride = 15;
 
-  /// Tipo por posición en la carretera: alterna siluetas a lo largo del
-  /// recorrido y los dos lados arrancan en puntos distintos del patrón.
-  static const List<int> _kindByIndex = [0, 3, 1, 4, 2, 0, 3];
+  /// Tipo por posición en la carretera, por bioma: alterna siluetas a lo
+  /// largo del recorrido y los dos lados arrancan en puntos distintos del
+  /// patrón.
+  static const List<List<int>> _kindsByBiome = [
+    [0, 3, 1, 4, 2, 0, 3], // desierto
+    [8, 5, 6, 7, 4, 9, 5], // ruinas
+    [10, 3, 1, 10, 2, 3, 4], // cañón
+  ];
 
   /// Ancho del rectángulo base por tipo (sobre el ancho del corredor).
-  static const List<double> _kindWidthFrac = [0.22, 0.34, 0.30, 0.46, 0.24];
+  static const List<double> _kindWidthFrac = [
+    0.22, 0.34, 0.30, 0.46, 0.24, // desierto
+    0.10, 0.30, 0.40, 0.50, 0.34, 0.26, // poste, auto, baranda, edificio, alambrado, pilar
+  ];
 
   /// Alto por tipo (sobre la altura de la pantalla): la meseta manda y el
   /// arbusto se queda bajo.
-  static const List<double> _kindHeightFrac = [0.60, 0.40, 0.32, 1.0, 0.70];
+  static const List<double> _kindHeightFrac = [
+    0.60, 0.40, 0.32, 1.0, 0.70,
+    0.62, 0.26, 0.16, 0.85, 0.22, 0.95,
+  ];
 
   /// Separación extra desde el hueco mínimo por tipo: el cartel pega a la
   /// ruta y la meseta se queda más atrás.
-  static const List<double> _kindLateral = [0.2, 0.5, 0.7, 0.35, 0.0];
+  static const List<double> _kindLateral = [
+    0.2, 0.5, 0.7, 0.35, 0.0,
+    0.1, 0.5, 0.0, 0.9, 0.3, 0.8,
+  ];
+
+  // --- Biomas ----------------------------------------------------------------
+  /// Largo de cada bioma en px de mundo recorridos (a 260-600 px/s son unos
+  /// 20-30 s) y tramo final en el que se mezcla con el siguiente.
+  static const double biomeLength = 9000;
+  static const double biomeBlend = 1500;
+
+  /// Distancia recorrida (px de mundo) desde el último [resetRun].
+  double _distance = 0;
+
+  @visibleForTesting
+  double get distance => _distance;
+
+  /// Bioma actual y el que viene, con el grado de mezcla (0..1, suavizado).
+  /// Los biomas rotan desierto → ruinas → cañón → desierto...
+  static ({Biome from, Biome to, double mix}) biomeAt(double distance) {
+    final d = max(0.0, distance);
+    final index = (d / biomeLength).floor();
+    final into = d - index * biomeLength;
+    final blendStart = biomeLength - biomeBlend;
+    final raw = into <= blendStart
+        ? 0.0
+        : ((into - blendStart) / biomeBlend).clamp(0.0, 1.0).toDouble();
+    return (
+      from: Biome.values[index % Biome.values.length],
+      to: Biome.values[(index + 1) % Biome.values.length],
+      mix: raw * raw * (3 - 2 * raw), // smoothstep
+    );
+  }
+
+  /// Bioma vigente (el que más pesa en la mezcla actual).
+  Biome get currentBiome {
+    final b = biomeAt(_distance);
+    return b.mix >= 0.5 ? b.to : b.from;
+  }
+
+  /// Bioma al que pertenecen los props y detalles que nacen ahora al fondo:
+  /// durante la mezcla ya son del siguiente, así cuando termina el cambio de
+  /// colores los props ya coinciden con el paisaje.
+  Biome get _spawnBiome {
+    final b = biomeAt(_distance);
+    return b.mix > 0 ? b.to : b.from;
+  }
+
+  /// Vuelve al desierto y a los props iniciales (nueva partida).
+  void resetRun() {
+    _distance = 0;
+    _propSerial = 0;
+    _decalSerial = 0;
+    _props
+      ..clear()
+      ..addAll(_seedProps());
+    _sortPropsFarToNear();
+    _decals
+      ..clear()
+      ..addAll(_seedDecals());
+  }
+
+  int _propSerial = 0;
+
+  /// Da a [prop] el aspecto del siguiente tipo del bioma que nace.
+  void _recycleLook(SideProp prop) {
+    final kinds = _kindsByBiome[_spawnBiome.index];
+    final kind = kinds[(_propSerial + (prop.side > 0 ? 3 : 0)) % kinds.length];
+    prop.widthFrac = _kindWidthFrac[kind];
+    prop.heightFrac = _kindHeightFrac[kind];
+    prop.lateralFrac = _kindLateral[kind];
+    prop.style = (_propSerial + 1) * _kindStride + kind;
+    _propSerial++;
+  }
 
   /// Props vivos, ordenados de lejos a cerca (se reordena al reciclar).
   final List<SideProp> _props = [];
@@ -108,8 +204,8 @@ class MapRenderer {
       for (var i = 0; i < _propCount; i++) {
         // El lado derecho va desfasado medio paso: los dos no se espejan.
         final k = i + (side > 0 ? 0.5 : 0.0);
-        final kind =
-            _kindByIndex[(i + (side > 0 ? 3 : 0)) % _kindByIndex.length];
+        final kinds = _kindsByBiome[Biome.desert.index];
+        final kind = kinds[(i + (side > 0 ? 3 : 0)) % kinds.length];
         list.add(
           SideProp(
             side: side,
@@ -117,9 +213,9 @@ class MapRenderer {
             widthFrac: _kindWidthFrac[kind],
             heightFrac: _kindHeightFrac[kind],
             lateralFrac: _kindLateral[kind],
-            // `style % _kindCount` es el tipo; el resto de la semilla varía
+            // `style % _kindStride` es el tipo; el resto de la semilla varía
             // el tono entre props del mismo tipo.
-            style: i * _kindCount + kind,
+            style: i * _kindStride + kind,
           ),
         );
       }
@@ -183,6 +279,74 @@ class MapRenderer {
     _bits.sort((a, b) => b.z.compareTo(a.z));
   }
 
+  // --- Detalles del asfalto ----------------------------------------------------
+  /// Cantidad de detalles sobre la ruta. Viven en coordenada de mundo (la misma
+  /// z que los props) y se reciclan sin asignar memoria.
+  static const int _decalCount = 12;
+  static const double _decalZMin = 1.0;
+  static const double _decalSpan = 3.0;
+
+  /// Carriles posibles (unidades de carril; el asfalto llega hasta ±1.14).
+  static const List<double> _decalLanes = [
+    -0.8, 0.3, 0.9, -0.2, 0.6, -1.0, 0.0, 0.95, -0.55,
+  ];
+
+  /// Tipos de detalle: 0 grieta, 1 mancha de aceite, 2 frenada, 3 arena que
+  /// invade la ruta (siempre en el borde) y 4 parche de reparación. Cada
+  /// bioma reparte su propia mezcla.
+  static const List<List<int>> _decalKindsByBiome = [
+    [3, 0, 1, 3, 4, 2, 3, 0], // desierto: mucha arena
+    [0, 4, 0, 1, 2, 0, 4, 1], // ruinas: grietas y parches
+    [3, 3, 0, 3, 2, 3, 1, 0], // cañón: arena y polvo
+  ];
+
+  /// Apaga el dibujo de los detalles del asfalto (solo para tests de look).
+  @visibleForTesting
+  bool drawDecals = true;
+
+  final List<_Decal> _decals = [];
+  int _decalSerial = 0;
+
+  @visibleForTesting
+  int get decalCount => _decals.length;
+
+  /// Profundidad y carril de cada detalle (para los tests).
+  @visibleForTesting
+  List<({double z, double lane})> get decalSpots =>
+      [for (final d in _decals) (z: d.z, lane: d.lane)];
+
+  List<_Decal> _seedDecals() {
+    final list = <_Decal>[];
+    for (var i = 0; i < _decalCount; i++) {
+      final decal = _Decal(z: _decalZMin + (i + 0.5) * (_decalSpan / _decalCount));
+      _decalLook(decal, Biome.desert, i);
+      list.add(decal);
+    }
+    return list;
+  }
+
+  /// Un detalle que dio la vuelta nace con la mezcla del bioma que viene.
+  void _recycleDecal(_Decal decal) {
+    _decalLook(decal, _spawnBiome, _decalCount + _decalSerial);
+    _decalSerial++;
+  }
+
+  void _decalLook(_Decal decal, Biome biome, int serial) {
+    final kinds = _decalKindsByBiome[biome.index];
+    decal.kind = kinds[serial % kinds.length];
+    decal.lane = decal.kind == 3
+        ? (serial.isEven ? -1.06 : 1.06) // la arena entra desde el borde
+        : _decalLanes[(serial * 5) % _decalLanes.length];
+    decal.size = switch (decal.kind) {
+      0 => 0.34,
+      1 => 0.30,
+      2 => 0.36,
+      3 => 0.42,
+      _ => 0.40,
+    };
+    decal.seed = serial * 7919 + 13;
+  }
+
   // --- Rayas de velocidad ----------------------------------------------------
   // Coordenada de mundo `z`: 1 = línea base, > 1 = más lejos. Avanzan
   // uniformemente en `z` (velocidad de mundo constante), lo que en pantalla
@@ -232,6 +396,7 @@ class MapRenderer {
   void update(double dt, double worldSpeed, Perspective p) {
     _time += dt;
     if (p.corridorHeight <= 0) return;
+    _distance += max(0.0, worldSpeed) * dt;
     // En la línea base (z = 1) el avance en z equivale exactamente a
     // `worldSpeed` px/s en pantalla.
     final dz = (worldSpeed / p.corridorHeight) * dt;
@@ -252,7 +417,10 @@ class MapRenderer {
       while (z < _propZMin) {
         z += _propSpan;
       }
-      if (z > prop.z) reordered = true; // dio la vuelta: va al fondo
+      if (z > prop.z) {
+        reordered = true; // dio la vuelta: va al fondo
+        _recycleLook(prop); // y nace con el aspecto del bioma que viene
+      }
       prop.z = z;
     }
     if (reordered) _sortPropsFarToNear();
@@ -269,9 +437,82 @@ class MapRenderer {
     }
     if (bitsReordered) _sortBitsFarToNear();
 
+    // Detalles del asfalto (grietas, manchas...): mismo avance y reciclado.
+    for (final decal in _decals) {
+      var z = decal.z - dz;
+      var wrapped = false;
+      while (z < _decalZMin) {
+        z += _decalSpan;
+        wrapped = true;
+      }
+      decal.z = z;
+      if (wrapped) _recycleDecal(decal);
+    }
+
     // El punteado de las divisorias corre en z con la misma velocidad.
     _dashPhase = _wrap(_dashPhase - dz, _dashPeriod);
   }
+
+  /// Paleta vigente: la del tema (fundida día/noche según [blend]), tintada
+  /// por la mezcla de biomas. En pleno desierto devuelve la paleta base tal
+  /// cual.
+  _Palette _paletteFor(double blend) {
+    final base = _Palette.lerp(_light, _dark, blend);
+    final b = biomeAt(_distance);
+    if (b.from == Biome.desert && b.mix == 0) return base;
+    final a = _biomeColors(b.from, base);
+    final z = _biomeColors(b.to, base);
+    return base.withBiome(
+      skyBottom: _mix(a.skyBottom, z.skyBottom, b.mix),
+      sandFar: _mix(a.sandFar, z.sandFar, b.mix),
+      sandNear: _mix(a.sandNear, z.sandNear, b.mix),
+      ridgeFar: _mix(a.ridgeFar, z.ridgeFar, b.mix),
+      ridgeLit: _mix(a.ridgeLit, z.ridgeLit, b.mix),
+      duneNear: _mix(a.duneNear, z.duneNear, b.mix),
+      shoulder: _mix(a.shoulder, z.shoulder, b.mix),
+      haze: _mix(a.haze, z.haze, b.mix),
+      pyrLit: _mix(a.pyrLit, z.pyrLit, b.mix),
+      pyrShade: _mix(a.pyrShade, z.pyrShade, b.mix),
+    );
+  }
+
+  static Color _mix(Color x, Color y, double t) => Color.lerp(x, y, t)!;
+
+  /// Colores de [biome] con el fundido día/noche de [base] (`base.night`).
+  _BiomeColors _biomeColors(Biome biome, _Palette base) {
+    switch (biome) {
+      case Biome.desert:
+        return (
+          skyBottom: base.skyBottom,
+          sandFar: base.sandFar,
+          sandNear: base.sandNear,
+          ridgeFar: base.ridgeFar,
+          ridgeLit: base.ridgeLit,
+          duneNear: base.duneNear,
+          shoulder: base.shoulder,
+          haze: base.haze,
+          pyrLit: base.pyrLit,
+          pyrShade: base.pyrShade,
+        );
+      case Biome.ruins:
+        return _lerpBiome(_ruinsDay, _ruinsNight, base.night);
+      case Biome.canyon:
+        return _lerpBiome(_canyonDay, _canyonNight, base.night);
+    }
+  }
+
+  static _BiomeColors _lerpBiome(_BiomeColors d, _BiomeColors n, double t) => (
+        skyBottom: _mix(d.skyBottom, n.skyBottom, t),
+        sandFar: _mix(d.sandFar, n.sandFar, t),
+        sandNear: _mix(d.sandNear, n.sandNear, t),
+        ridgeFar: _mix(d.ridgeFar, n.ridgeFar, t),
+        ridgeLit: _mix(d.ridgeLit, n.ridgeLit, t),
+        duneNear: _mix(d.duneNear, n.duneNear, t),
+        shoulder: _mix(d.shoulder, n.shoulder, t),
+        haze: _mix(d.haze, n.haze, t),
+        pyrLit: _mix(d.pyrLit, n.pyrLit, t),
+        pyrShade: _mix(d.pyrShade, n.pyrShade, t),
+      );
 
   /// Mantiene [value] en [0, mod) (módulo siempre positivo).
   static double _wrap(double value, double mod) => ((value % mod) + mod) % mod;
@@ -288,7 +529,7 @@ class MapRenderer {
     required double playerX,
   }) {
     if (p.width <= 0 || p.height <= 0) return;
-    final c = _Palette.lerp(_light, _dark, blend);
+    final c = _paletteFor(blend);
     final w = p.width;
     final h = p.height;
     final vx = p.vanishX;
@@ -369,6 +610,15 @@ class MapRenderer {
         ..strokeWidth = 2
         ..strokeCap = StrokeCap.round,
     );
+    if (drawSkyline) {
+      _drawSkyline(
+        canvas,
+        w: w,
+        baseY: vy,
+        offset: _time * 5 + sway * 0.055 + 90,
+        c: c,
+      );
+    }
     _drawBumps(
       canvas,
       w: w,
@@ -454,6 +704,9 @@ class MapRenderer {
     // 8) Marcas viales (recortadas al asfalto) -----------------------------------
     canvas.save();
     canvas.clipPath(roadPath);
+
+    // Detalles del asfalto (grietas, aceite, frenadas, arena, parches).
+    if (drawDecals) _drawRoadDecals(canvas, p, c);
 
     // Bandas de velocidad en coordenada de mundo: lo que hace leer la marcha.
     final stripePaint = Paint();
@@ -895,6 +1148,143 @@ class MapRenderer {
     }
   }
 
+  // --- Siluetas de ciudad (parallax intermedio) ------------------------------
+
+  /// Largo del patrón de edificios en px de pantalla (se repite en bucle).
+  static const double _cityPeriod = 280;
+
+  /// Peso de la ciudad por bioma: apenas insinuada en el desierto, plena en
+  /// las ruinas y ausente en el cañón (ahí mandan las paredes de roca).
+  static const List<double> _cityWeightByBiome = [0.30, 1.0, 0.0];
+
+  /// Edificios de cada ranura del patrón: posición y ancho (fracción del
+  /// período), alto (fracción del máximo) y remate (0 plano, 1 escalonado,
+  /// 2 derrumbado en diagonal, 3 tanque de agua, 4 antena).
+  static const List<({double x, double w, double h, int top})> _cityLots = [
+    (x: 0.00, w: 0.17, h: 0.55, top: 0),
+    (x: 0.17, w: 0.13, h: 0.85, top: 1),
+    (x: 0.33, w: 0.20, h: 0.40, top: 3),
+    (x: 0.55, w: 0.14, h: 1.00, top: 2),
+    (x: 0.72, w: 0.12, h: 0.65, top: 4),
+    (x: 0.86, w: 0.14, h: 0.45, top: 0),
+  ];
+
+  /// Apaga la capa de ciudad (solo para tests de look).
+  @visibleForTesting
+  bool drawSkyline = true;
+
+  /// 0..1: cuánta ciudad se ve a esta distancia (mezcla suave entre biomas).
+  @visibleForTesting
+  static double cityWeight(double distance) {
+    final b = biomeAt(distance);
+    final a = _cityWeightByBiome[b.from.index];
+    final z = _cityWeightByBiome[b.to.index];
+    return a + (z - a) * b.mix;
+  }
+
+  /// Siluetas de edificios entre las mesetas y las dunas. Todos los edificios
+  /// y todas las ventanas encendidas van en un solo `Path` cada uno (dos
+  /// `drawPath` por frame). Nacen en el horizonte y nunca bajan de [baseY].
+  void _drawSkyline(
+    Canvas canvas, {
+    required double w,
+    required double baseY,
+    required double offset,
+    required _Palette c,
+  }) {
+    final weight = cityWeight(_distance);
+    if (weight < 0.02 || baseY <= 0) return;
+
+    final maxH = baseY * 0.40 * (0.55 + 0.45 * weight);
+    final first = (offset / _cityPeriod).floor() - 1;
+    final slots = (w / _cityPeriod).ceil() + 3;
+    final body = Path();
+    final lit = Path();
+
+    for (var s = 0; s < slots; s++) {
+      final k = first + s;
+      final x0 = k * _cityPeriod - offset;
+      for (var i = 0; i < _cityLots.length; i++) {
+        // Un edificio de cada nueve falta (solar vacío, derrumbe).
+        if ((k * 7 + i * 5) % 9 == 0) continue;
+        final lot = _cityLots[i];
+        final vary = 0.7 + 0.3 * (((k * 5 + i * 3) % 4 + 4) % 4) / 3;
+        final bx = x0 + lot.x * _cityPeriod;
+        final bw = lot.w * _cityPeriod;
+        final hgt = lot.h * vary * maxH;
+        if (bx + bw < 0 || bx > w) continue;
+
+        switch (lot.top) {
+          case 1: // escalonado
+            body.addPolygon([
+              Offset(bx, baseY),
+              Offset(bx, baseY - hgt),
+              Offset(bx + bw * 0.6, baseY - hgt),
+              Offset(bx + bw * 0.6, baseY - hgt * 0.88),
+              Offset(bx + bw, baseY - hgt * 0.88),
+              Offset(bx + bw, baseY),
+            ], true);
+          case 2: // derrumbado en diagonal
+            body.addPolygon([
+              Offset(bx, baseY),
+              Offset(bx, baseY - hgt),
+              Offset(bx + bw * 0.55, baseY - hgt * 0.80),
+              Offset(bx + bw, baseY - hgt * 0.72),
+              Offset(bx + bw, baseY),
+            ], true);
+          default:
+            body.addRect(Rect.fromLTRB(bx, baseY - hgt, bx + bw, baseY));
+            if (lot.top == 3) {
+              // Tanque de agua: patas finas y tambor.
+              final tw = bw * 0.5;
+              final tx = bx + bw * 0.25;
+              body.addRect(Rect.fromLTRB(
+                  tx, baseY - hgt - maxH * 0.10, tx + tw, baseY - hgt - maxH * 0.03));
+              body.addRect(Rect.fromLTRB(tx + tw * 0.15, baseY - hgt - maxH * 0.03,
+                  tx + tw * 0.25, baseY - hgt));
+              body.addRect(Rect.fromLTRB(tx + tw * 0.75, baseY - hgt - maxH * 0.03,
+                  tx + tw * 0.85, baseY - hgt));
+            } else if (lot.top == 4) {
+              final aw = max(1.5, bw * 0.05);
+              final ax = bx + bw * 0.5 - aw * 0.5;
+              body.addRect(
+                  Rect.fromLTRB(ax, baseY - hgt - maxH * 0.22, ax + aw, baseY - hgt));
+            }
+        }
+
+        // Ventanas encendidas (solo de noche): una de cada cuatro.
+        if (c.night > 0) {
+          final cols = (bw / 14).floor().clamp(1, 3);
+          final rows = (hgt / 16).floor().clamp(0, 5);
+          final gap = bw / (cols + 1);
+          for (var r = 0; r < rows; r++) {
+            for (var q = 0; q < cols; q++) {
+              if ((k * 31 + i * 17 + r * 7 + q * 13) % 4 != 0) continue;
+              final wx = bx + gap * (q + 1) - 1.5;
+              final wy = baseY - hgt + 8 + r * 14.0;
+              lit.addRect(Rect.fromLTWH(wx, wy, 3, 4));
+            }
+          }
+        }
+      }
+    }
+
+    final silhouette =
+        Color.lerp(c.ridgeFar, c.skyBottom, 0.40 - 0.15 * c.night)!;
+    canvas.drawPath(
+      body,
+      Paint()..color = silhouette.withValues(alpha: weight * (0.85 + 0.10 * c.night)),
+    );
+    if (c.night > 0) {
+      canvas.drawPath(
+        lit,
+        Paint()
+          ..color = const Color(0xFFE8B84A)
+              .withValues(alpha: 0.8 * weight * c.night),
+      );
+    }
+  }
+
   /// Mesetas lejanas: planchas planas con huecos y una solapa iluminada en
   /// el borde superior (la luz rasante del sol o de la luna).
   void _drawMesas(
@@ -972,6 +1362,12 @@ class MapRenderer {
         1 => const Color(0xFFB98A5E), // roca
         2 => const Color(0xFF9C8348), // arbusto seco
         3 => const Color(0xFFB0714B), // meseta
+        5 => const Color(0xFF5B6168), // poste de luz
+        6 => const Color(0xFF7A8A93), // auto abandonado
+        7 => const Color(0xFF9AA0A6), // guardarraíl
+        8 => const Color(0xFF8A8478), // edificio en ruinas
+        9 => const Color(0xFF6E5B45), // alambrado
+        10 => const Color(0xFFA8553A), // pilar de roca
         _ => const Color(0xFF9A9684), // cartel
       };
 
@@ -982,7 +1378,7 @@ class MapRenderer {
     double alpha,
     _Palette c,
   ) {
-    final kind = prop.style % _kindCount;
+    final kind = prop.style % _kindStride;
 
     // Tono propio de cada prop: dos vecinos no se funden en una hilera
     // indistinguible de siluetas del mismo color.
@@ -1028,6 +1424,18 @@ class MapRenderer {
         _drawBush(canvas, body, bodyPaint, accent, alpha);
       case 3:
         _drawMesa(canvas, body, bodyPaint, accent, alpha);
+      case 5:
+        _drawLamp(canvas, prop, body, accent, alpha, c);
+      case 6:
+        _drawWreck(canvas, prop, body, bodyPaint, alpha);
+      case 7:
+        _drawGuardrail(canvas, prop, body, bodyPaint, accent, alpha);
+      case 8:
+        _drawRuin(canvas, prop, body, bodyPaint, accent, alpha, c);
+      case 9:
+        _drawFence(canvas, prop, body, accent, alpha);
+      case 10:
+        _drawSpire(canvas, body, bodyPaint, accent, alpha);
       default:
         _drawSign(canvas, body, bodyPaint, accent, alpha);
     }
@@ -1351,6 +1759,337 @@ class MapRenderer {
     }
   }
 
+  // --- Props de ruinas y cañón ---------------------------------------------------
+
+  /// Poste de luz: mástil fino, brazo hacia la ruta y farol. De noche, una de
+  /// cada dos farolas sigue encendida y deja un halo cálido.
+  void _drawLamp(
+    Canvas canvas,
+    SideProp prop,
+    Rect body,
+    Paint accent,
+    double alpha,
+    _Palette c,
+  ) {
+    final w = body.width;
+    final dir = -prop.side.toDouble(); // el brazo apunta hacia la ruta
+    final poleW = max(2.0, w * 0.22);
+    final poleX = body.center.dx - dir * w * 0.3;
+    final armY = body.top + w * 0.2;
+    final metal = accent.color.withValues(alpha: alpha);
+
+    canvas.drawRect(
+      Rect.fromLTWH(poleX - poleW * 0.5, armY, poleW, body.bottom - armY),
+      Paint()..color = metal,
+    );
+    final headCenter = Offset(poleX + dir * w * 0.6, armY - w * 0.04);
+    canvas.drawLine(
+      Offset(poleX, armY),
+      headCenter,
+      Paint()
+        ..color = metal
+        ..strokeWidth = max(1.5, poleW * 0.8)
+        ..strokeCap = StrokeCap.round,
+    );
+
+    final lit = c.night > 0.5 && prop.style % 2 == 0;
+    if (lit) {
+      canvas.drawCircle(
+        headCenter,
+        w * 1.1,
+        Paint()
+          ..shader = ui.Gradient.radial(
+            headCenter,
+            w * 1.1,
+            [
+              const Color(0xFFFFE2A0).withValues(alpha: 0.55 * alpha),
+              const Color(0x00FFE2A0),
+            ],
+          ),
+      );
+    }
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(center: headCenter, width: w * 0.32, height: w * 0.16),
+        Radius.circular(max(1.0, w * 0.05)),
+      ),
+      Paint()
+        ..color = (lit ? const Color(0xFFFFE2A0) : const Color(0xFF3A3F45))
+            .withValues(alpha: alpha),
+    );
+  }
+
+  /// Auto abandonado visto de atrás, volcado un poco hacia afuera de la ruta:
+  /// carrocería, luneta oscura, ruedas y luces rotas.
+  void _drawWreck(
+    Canvas canvas,
+    SideProp prop,
+    Rect body,
+    Paint paint,
+    double alpha,
+  ) {
+    final w = body.width;
+    final h = body.height;
+    final l = body.left;
+    final t = body.top;
+    final ink = const Color(0xFF1B1A17).withValues(alpha: alpha);
+
+    canvas.save();
+    // Gira alrededor del centro de la base, con la parte alta hacia afuera.
+    canvas.translate(body.center.dx, body.bottom);
+    canvas.rotate(prop.side * 0.07);
+    canvas.translate(-body.center.dx, -body.bottom);
+
+    final wheelW = w * 0.14;
+    final wheelH = h * 0.24;
+    for (final x in [l + w * 0.07, l + w * 0.79]) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(x, body.bottom - wheelH, wheelW, wheelH),
+          Radius.circular(wheelW * 0.3),
+        ),
+        Paint()..color = ink,
+      );
+    }
+    final cabin = Path()
+      ..moveTo(l + w * 0.18, t + h * 0.42)
+      ..lineTo(l + w * 0.27, t + h * 0.04)
+      ..lineTo(l + w * 0.73, t + h * 0.04)
+      ..lineTo(l + w * 0.82, t + h * 0.42)
+      ..close();
+    final trunk = RRect.fromRectAndRadius(
+      Rect.fromLTWH(l, t + h * 0.40, w, h * 0.46),
+      Radius.circular(max(1.0, w * 0.04)),
+    );
+    canvas.drawPath(cabin, paint);
+    canvas.drawRRect(trunk, paint);
+    canvas.drawPath(
+      Path()
+        ..moveTo(l + w * 0.24, t + h * 0.38)
+        ..lineTo(l + w * 0.31, t + h * 0.10)
+        ..lineTo(l + w * 0.69, t + h * 0.10)
+        ..lineTo(l + w * 0.76, t + h * 0.38)
+        ..close(),
+      Paint()..color = const Color(0xFF1B2A33).withValues(alpha: 0.9 * alpha),
+    );
+    final light = Paint()
+      ..color = const Color(0xFF4A1512).withValues(alpha: alpha);
+    canvas.drawRect(Rect.fromLTWH(l + w * 0.04, t + h * 0.50, w * 0.12, h * 0.10), light);
+    canvas.drawRect(Rect.fromLTWH(l + w * 0.84, t + h * 0.50, w * 0.12, h * 0.10), light);
+    canvas.drawRRect(
+      trunk,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0
+        ..color = ink.withValues(alpha: 0.5 * alpha),
+    );
+    canvas.restore();
+  }
+
+  /// Guardarraíl: postes y vigas onduladas. En una de cada tres falta el
+  /// tramo del medio (choque viejo).
+  void _drawGuardrail(
+    Canvas canvas,
+    SideProp prop,
+    Rect body,
+    Paint paint,
+    Paint accent,
+    double alpha,
+  ) {
+    final w = body.width;
+    final h = body.height;
+    final post = accent.color.withValues(alpha: alpha);
+    final postW = max(2.0, w * 0.035);
+    for (var i = 0; i < 4; i++) {
+      final x = body.left + w * (0.06 + i * 0.29);
+      canvas.drawRect(
+        Rect.fromLTWH(x - postW * 0.5, body.top + h * 0.25, postW, h * 0.75),
+        Paint()..color = post,
+      );
+    }
+    final broken = prop.style % 3 == 0;
+    for (var seg = 0; seg < 3; seg++) {
+      if (broken && seg == 1) continue;
+      final x0 = body.left + w * (0.06 + seg * 0.29);
+      final x1 = x0 + w * 0.29;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTRB(x0, body.top + h * 0.12, x1, body.top + h * 0.48),
+          Radius.circular(h * 0.08),
+        ),
+        paint,
+      );
+      canvas.drawLine(
+        Offset(x0, body.top + h * 0.30),
+        Offset(x1, body.top + h * 0.30),
+        Paint()
+          ..color = post.withValues(alpha: 0.5 * alpha)
+          ..strokeWidth = max(0.8, h * 0.04),
+      );
+    }
+  }
+
+  /// Edificio en ruinas: silueta rota arriba, ventanas negras (algunas
+  /// tapiadas; de noche, alguna con luz), mugre abajo y hierros retorcidos.
+  void _drawRuin(
+    Canvas canvas,
+    SideProp prop,
+    Rect body,
+    Paint paint,
+    Paint accent,
+    double alpha,
+    _Palette c,
+  ) {
+    final w = body.width;
+    final h = body.height;
+    final l = body.left;
+    final t = body.top;
+    final ink = const Color(0xFF14161C);
+    final shell = Path()
+      ..moveTo(l, body.bottom)
+      ..lineTo(l, t + h * 0.14)
+      ..lineTo(l + w * 0.28, t)
+      ..lineTo(l + w * 0.46, t + h * 0.09)
+      ..lineTo(l + w * 0.70, t + h * 0.02)
+      ..lineTo(body.right, t + h * 0.22)
+      ..lineTo(body.right, body.bottom)
+      ..close();
+    canvas.drawPath(shell, paint);
+
+    canvas.save();
+    canvas.clipPath(shell);
+    final windowW = w * 0.16;
+    final windowH = h * 0.075;
+    for (var row = 0; row < 6; row++) {
+      for (var col = 0; col < 3; col++) {
+        final k = prop.style + row * 3 + col;
+        if (k % 5 == 0) continue; // ventana tapiada
+        final lit = c.night > 0.5 && k % 7 == 0;
+        canvas.drawRect(
+          Rect.fromLTWH(
+            l + w * (0.14 + col * 0.28),
+            t + h * (0.24 + row * 0.115),
+            windowW,
+            windowH,
+          ),
+          Paint()
+            ..color = (lit ? const Color(0xFFE8B84A) : ink)
+                .withValues(alpha: (lit ? 0.85 : 0.75) * alpha),
+        );
+      }
+    }
+    canvas.drawRect(
+      Rect.fromLTWH(l, t + h * 0.80, w, h * 0.20),
+      Paint()..color = ink.withValues(alpha: 0.25 * alpha),
+    );
+    canvas.restore();
+
+    canvas.drawPath(
+      shell,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = max(1.0, w * 0.012)
+        ..color = ink.withValues(alpha: 0.6 * alpha),
+    );
+    final rebar = Paint()
+      ..strokeWidth = max(0.8, w * 0.012)
+      ..strokeCap = StrokeCap.round
+      ..color = accent.color.withValues(alpha: alpha);
+    canvas.drawLine(Offset(l + w * 0.30, t + h * 0.01), Offset(l + w * 0.34, t - h * 0.04), rebar);
+    canvas.drawLine(Offset(l + w * 0.62, t + h * 0.03), Offset(l + w * 0.58, t - h * 0.03), rebar);
+  }
+
+  /// Alambrado: postes torcidos con alambre flojo; en algunos falta un tramo.
+  void _drawFence(
+    Canvas canvas,
+    SideProp prop,
+    Rect body,
+    Paint accent,
+    double alpha,
+  ) {
+    final w = body.width;
+    final h = body.height;
+    final postPaint = Paint()
+      ..color = accent.color.withValues(alpha: alpha)
+      ..strokeWidth = max(1.5, w * 0.04)
+      ..strokeCap = StrokeCap.round;
+    final xs = [for (var i = 0; i < 4; i++) body.left + w * (0.05 + i * 0.30)];
+    for (var i = 0; i < xs.length; i++) {
+      final lean = (i + prop.style) % 3 == 0 ? w * 0.03 : 0.0;
+      canvas.drawLine(
+        Offset(xs[i], body.bottom),
+        Offset(xs[i] + lean, body.top + h * (i.isOdd ? 0.12 : 0.0)),
+        postPaint,
+      );
+    }
+    final wire = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = max(0.7, w * 0.012)
+      ..color = const Color(0xFF2A2724).withValues(alpha: 0.85 * alpha);
+    for (var i = 0; i < xs.length - 1; i++) {
+      if (prop.style % 4 == 1 && i == 2) continue; // tramo cortado
+      for (final f in const [0.20, 0.55, 0.85]) {
+        final y = body.top + h * f;
+        canvas.drawPath(
+          Path()
+            ..moveTo(xs[i], y)
+            ..quadraticBezierTo((xs[i] + xs[i + 1]) * 0.5, y + h * 0.08, xs[i + 1], y),
+          wire,
+        );
+      }
+    }
+  }
+
+  /// Pilar de roca del cañón: columna estratificada con una cara en sombra.
+  void _drawSpire(
+    Canvas canvas,
+    Rect body,
+    Paint paint,
+    Paint accent,
+    double alpha,
+  ) {
+    final w = body.width;
+    final h = body.height;
+    final l = body.left;
+    final t = body.top;
+    final path = Path()
+      ..moveTo(l + w * 0.08, body.bottom)
+      ..lineTo(l + w * 0.20, t + h * 0.55)
+      ..lineTo(l + w * 0.10, t + h * 0.34)
+      ..lineTo(l + w * 0.30, t + h * 0.12)
+      ..lineTo(l + w * 0.50, t)
+      ..lineTo(l + w * 0.70, t + h * 0.10)
+      ..lineTo(l + w * 0.90, t + h * 0.38)
+      ..lineTo(l + w * 0.80, t + h * 0.60)
+      ..lineTo(l + w * 0.94, body.bottom)
+      ..close();
+    canvas.drawPath(path, paint);
+
+    canvas.save();
+    canvas.clipPath(path);
+    final strata = Paint()
+      ..color = accent.color.withValues(alpha: 0.35 * alpha)
+      ..strokeWidth = max(1.0, w * 0.02);
+    for (var i = 1; i < 7; i++) {
+      final y = t + h * (i * 0.14);
+      final dy = i.isEven ? h * 0.01 : -h * 0.01;
+      canvas.drawLine(Offset(l, y + dy), Offset(l + w, y), strata);
+    }
+    canvas.drawRect(
+      Rect.fromLTRB(l + w * 0.55, t, l + w, body.bottom),
+      Paint()..color = const Color(0xFF000000).withValues(alpha: 0.18 * alpha),
+    );
+    canvas.restore();
+
+    canvas.drawPath(
+      path,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = max(1.0, w * 0.015)
+        ..color = accent.color.withValues(alpha: 0.8 * alpha),
+    );
+  }
+
   /// Detalles de suelo: pasto seco, piedritas, huesos y cactus bebé.
   void _drawBit(
     Canvas canvas,
@@ -1462,6 +2201,123 @@ class MapRenderer {
     }
   }
 
+  // --- Detalles del asfalto ---------------------------------------------------
+
+  /// Grietas, manchas de aceite, frenadas, arena y parches sobre el asfalto.
+  /// Se proyectan como cualquier objeto del mundo (`t = 1/z`) y van recortados
+  /// a la ruta (se llama dentro del clip del asfalto, antes de las marcas
+  /// viales, así las divisorias quedan encima).
+  void _drawRoadDecals(Canvas canvas, Perspective p, _Palette c) {
+    final half = p.baseWidth * 0.5;
+    const ink = Color(0xFF05060A);
+    for (final d in _decals) {
+      final alpha = _propAlpha(d.z);
+      if (alpha <= 0) continue;
+      final t = (1.0 / d.z).clamp(0.0, 1.0);
+      final cx = p.vanishX + d.lane * half * t;
+      final cy = p.yAtT(t);
+      final w = d.size * half * t;
+      final h = w * 0.32; // la ruta se ve de costado: todo se achata
+      if (w < 2) continue;
+
+      switch (d.kind) {
+        case 0: // grieta
+          final r = Random(d.seed);
+          final path = Path()..moveTo(cx - w * 0.5, cy);
+          var x = cx - w * 0.5;
+          for (var i = 0; i < 5; i++) {
+            x += w * (0.16 + r.nextDouble() * 0.08);
+            final y = cy - h * (0.2 + r.nextDouble() * 1.4) * (i.isEven ? 1.0 : 0.4);
+            path.lineTo(x, y);
+          }
+          canvas.drawPath(
+            path,
+            Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = max(0.8, w * 0.035)
+              ..strokeJoin = StrokeJoin.round
+              ..color = ink.withValues(alpha: 0.45 * alpha),
+          );
+        case 1: // mancha de aceite
+          canvas.drawOval(
+            Rect.fromCenter(center: Offset(cx, cy - h * 0.5), width: w, height: h),
+            Paint()..color = ink.withValues(alpha: 0.30 * alpha),
+          );
+          canvas.drawOval(
+            Rect.fromCenter(
+              center: Offset(cx - w * 0.1, cy - h * 0.55),
+              width: w * 0.5,
+              height: h * 0.45,
+            ),
+            Paint()..color = c.roadLine.withValues(alpha: 0.06 * alpha),
+          );
+        case 2: // frenada: dos huellas que se curvan
+          final len = h * 3.2;
+          for (final off in const [-0.18, 0.18]) {
+            canvas.drawPath(
+              Path()
+                ..moveTo(cx + off * w, cy)
+                ..quadraticBezierTo(
+                  cx + (off + 0.15) * w,
+                  cy - len * 0.5,
+                  cx + (off + 0.05) * w,
+                  cy - len,
+                ),
+              Paint()
+                ..style = PaintingStyle.stroke
+                ..strokeCap = StrokeCap.round
+                ..strokeWidth = max(1.0, w * 0.07)
+                ..color = ink.withValues(alpha: 0.32 * alpha),
+            );
+          }
+        case 3: // arena que invade desde el borde
+          final sand = Paint()..color = c.sandNear.withValues(alpha: 0.55 * alpha);
+          canvas.drawOval(
+            Rect.fromCenter(center: Offset(cx, cy - h * 0.5), width: w, height: h),
+            sand,
+          );
+          canvas.drawOval(
+            Rect.fromCenter(
+              center: Offset(cx - w * 0.22, cy - h * 0.9),
+              width: w * 0.55,
+              height: h * 0.7,
+            ),
+            sand,
+          );
+          canvas.drawOval(
+            Rect.fromCenter(
+              center: Offset(cx + w * 0.2, cy - h * 0.2),
+              width: w * 0.5,
+              height: h * 0.5,
+            ),
+            sand,
+          );
+        default: // parche de reparación
+          final patch = RRect.fromRectAndRadius(
+            Rect.fromCenter(
+              center: Offset(cx, cy - h * 0.5),
+              width: w * 0.9,
+              height: h * 0.9,
+            ),
+            Radius.circular(max(1.0, h * 0.12)),
+          );
+          canvas.drawRRect(
+            patch,
+            Paint()
+              ..color = Color.lerp(c.roadNear, Colors.black, 0.2)!
+                  .withValues(alpha: 0.45 * alpha),
+          );
+          canvas.drawRRect(
+            patch,
+            Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = max(0.8, w * 0.015)
+              ..color = c.roadLine.withValues(alpha: 0.10 * alpha),
+          );
+      }
+    }
+  }
+
   // --- Marcas viales ----------------------------------------------------------
 
   /// Manchones de la divisoria `lane` (±0.5): la fase avanza con el juego en
@@ -1549,17 +2405,20 @@ class SideProp {
   double z;
 
   /// Ancho del prop sobre el ancho del corredor (en la línea base).
-  final double widthFrac;
+  double widthFrac;
 
   /// Alto del prop sobre la altura de la pantalla (en la línea base).
-  final double heightFrac;
+  double heightFrac;
 
   /// Separación extra desde el hueco mínimo (0 = lo más cerca de la ruta).
-  final double lateralFrac;
+  double lateralFrac;
 
-  /// Semilla del aspecto: `style % MapRenderer._kindCount` elige el tipo de
+  /// Semilla del aspecto: `style % MapRenderer._kindStride` elige el tipo de
   /// prop y el resto varía tono y detalles.
-  final int style;
+  ///
+  /// El aspecto (ancho, alto, separación y estilo) no es final: cuando el prop
+  /// da la vuelta y vuelve al fondo se le asigna un tipo del bioma vigente.
+  int style;
 
   /// Profundidad normalada proyectada en pantalla (misma ley que las rayas).
   double get t => (1.0 / z).clamp(0.0, 1.0);
@@ -1590,6 +2449,106 @@ class SideProp {
         : Rect.fromLTRB(inner, baseY - height, inner + width, baseY);
   }
 }
+
+/// Biomas del recorrido: rotan por distancia (ver [MapRenderer.biomeAt]).
+enum Biome {
+  /// Arena, cactus, mesetas y carteles de ruta.
+  desert,
+
+  /// Pueblo en ruinas: edificios rotos, postes, autos abandonados y barandas.
+  ruins,
+
+  /// Cañón rojo: pilares de roca, mesetas y polvo en la ruta.
+  canyon,
+}
+
+/// Detalle pintado sobre el asfalto (grieta, aceite, frenada, arena, parche).
+/// Mutable: al dar la vuelta se le asigna un aspecto del bioma que viene.
+class _Decal {
+  _Decal({required this.z});
+
+  /// Profundidad en coordenada de mundo (1 = línea base).
+  double z;
+
+  /// Carril normalizado (±1 = bordes de la ruta de juego).
+  double lane = 0;
+
+  /// 0 grieta, 1 aceite, 2 frenada, 3 arena, 4 parche.
+  int kind = 0;
+
+  /// Ancho en unidades de carril.
+  double size = 0.3;
+
+  /// Semilla del trazo (grietas irregulares, siempre iguales para el mismo).
+  int seed = 0;
+}
+
+/// Colores que cambian de un bioma a otro.
+typedef _BiomeColors = ({
+  Color skyBottom,
+  Color sandFar,
+  Color sandNear,
+  Color ridgeFar,
+  Color ridgeLit,
+  Color duneNear,
+  Color shoulder,
+  Color haze,
+  Color pyrLit,
+  Color pyrShade,
+});
+
+// Ruinas: tierra gris, concreto y cielo polvoriento (haze = skyBottom, como en
+// el desierto, para que la bruma se funda con el cielo).
+const _BiomeColors _ruinsDay = (
+  skyBottom: Color(0xFFD0A98A),
+  sandFar: Color(0xFFA8A48C),
+  sandNear: Color(0xFF7F7C68),
+  ridgeFar: Color(0xFF6F7886),
+  ridgeLit: Color(0xFFA3AAB5),
+  duneNear: Color(0xFF8A8C7A),
+  shoulder: Color(0xFF6E6C62),
+  haze: Color(0xFFD0A98A),
+  pyrLit: Color(0xFFA3AAB5),
+  pyrShade: Color(0xFF6F7886),
+);
+const _BiomeColors _ruinsNight = (
+  skyBottom: Color(0xFF34344E),
+  sandFar: Color(0xFF3A3D4A),
+  sandNear: Color(0xFF262833),
+  ridgeFar: Color(0xFF1D2233),
+  ridgeLit: Color(0xFF4A5470),
+  duneNear: Color(0xFF30344A),
+  shoulder: Color(0xFF1C1E2A),
+  haze: Color(0xFF30344F),
+  pyrLit: Color(0xFF4A5470),
+  pyrShade: Color(0xFF1D2233),
+);
+
+// Cañón: roca roja y cielo anaranjado.
+const _BiomeColors _canyonDay = (
+  skyBottom: Color(0xFFEFA06A),
+  sandFar: Color(0xFFD99062),
+  sandNear: Color(0xFFB5623D),
+  ridgeFar: Color(0xFF8C3F2A),
+  ridgeLit: Color(0xFFD07F55),
+  duneNear: Color(0xFFC4704A),
+  shoulder: Color(0xFF8A4A33),
+  haze: Color(0xFFEFA06A),
+  pyrLit: Color(0xFFD07F55),
+  pyrShade: Color(0xFF8C3F2A),
+);
+const _BiomeColors _canyonNight = (
+  skyBottom: Color(0xFF45283F),
+  sandFar: Color(0xFF4A2D3A),
+  sandNear: Color(0xFF33202E),
+  ridgeFar: Color(0xFF2B1730),
+  ridgeLit: Color(0xFF6A3A55),
+  duneNear: Color(0xFF40263A),
+  shoulder: Color(0xFF27161F),
+  haze: Color(0xFF40264D),
+  pyrLit: Color(0xFF6A3A55),
+  pyrShade: Color(0xFF2B1730),
+);
 
 // --- Paletas -----------------------------------------------------------------
 
@@ -1702,6 +2661,47 @@ class _Palette {
       night: a.night + (b.night - a.night) * k,
     );
   }
+
+  /// Copia de la paleta con los colores que cambian entre biomas.
+  _Palette withBiome({
+    required Color skyBottom,
+    required Color sandFar,
+    required Color sandNear,
+    required Color ridgeFar,
+    required Color ridgeLit,
+    required Color duneNear,
+    required Color shoulder,
+    required Color haze,
+    required Color pyrLit,
+    required Color pyrShade,
+  }) =>
+      _Palette(
+        skyTop: skyTop,
+        skyBottom: skyBottom,
+        star: star,
+        body: body,
+        bodyGlow: bodyGlow,
+        bodyShade: bodyShade,
+        cloud: cloud,
+        ridgeFar: ridgeFar,
+        ridgeLit: ridgeLit,
+        duneNear: duneNear,
+        sandFar: sandFar,
+        sandNear: sandNear,
+        shoulder: shoulder,
+        roadFar: roadFar,
+        roadNear: roadNear,
+        roadLine: roadLine,
+        stripe: stripe,
+        haze: haze,
+        propNight: propNight,
+        cloudShade: cloudShade,
+        kerbA: kerbA,
+        kerbB: kerbB,
+        pyrLit: pyrLit,
+        pyrShade: pyrShade,
+        night: night,
+      );
 }
 
 const _Palette _dark = _Palette(

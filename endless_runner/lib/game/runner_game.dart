@@ -14,6 +14,7 @@ import 'obstacle_component.dart';
 import 'perspective.dart';
 import 'power_up_component.dart';
 import 'power_up_state.dart';
+import 'speed_rumble.dart';
 import 'zombie_obstacle.dart';
 
 /// Acciones que el jugador dispara con un gesto. El tutorial las escucha para
@@ -164,6 +165,10 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
       260; // px/seg sobre la línea base, sube con el score
   double _elapsed = 0;
   double _scoreCarry = 0; // puntos de score aún no enteros
+
+  /// Temblor de cámara que crece con la velocidad (ver [SpeedRumble]). Es solo
+  /// visual; se puede apagar (accesibilidad o capturas de pantalla).
+  bool speedRumbleEnabled = true;
 
   /// Segundos de partida antes de que aparezca el primer auto de dos carriles
   /// (los primeros segundos sirven para aprender los otros obstáculos).
@@ -938,14 +943,25 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     // borde del mapa nunca asome mientras tiembla. El juice entra dentro de
     // la traslación porque es parte del mundo; el HUD se dibuja después, fuera
     // del temblor: es interfaz, no corredor.
+    // A eso se suma el temblor suave por velocidad ([SpeedRumble]): su cota
+    // entra en el mismo sobreescaneo, así el borde tampoco asoma con él.
     final shake = juice.shake;
+    final rumbleOn = speedRumbleEnabled &&
+        !tutorialActive &&
+        !gameState.isPaused.value &&
+        !gameState.isGameOver.value;
+    final rumbleAmp = rumbleOn ? SpeedRumble.amplitude(_difficultySpeed) : 0.0;
+    final extent = shake + rumbleAmp;
     canvas.save();
-    if (shake > 0) {
-      final overscan = 1.0 + (2 * shake) / max(1.0, min(size.x, size.y));
+    if (extent > 0) {
+      final overscan = 1.0 + (2 * extent) / max(1.0, min(size.x, size.y));
       canvas.translate(size.x * 0.5, size.y * 0.5);
       canvas.scale(overscan, overscan);
       canvas.translate(-size.x * 0.5, -size.y * 0.5);
-      final offset = juice.shakeOffset;
+      var offset = shake > 0 ? juice.shakeOffset : Offset.zero;
+      if (rumbleAmp > 0) {
+        offset += SpeedRumble.offsetAt(_elapsed, _difficultySpeed);
+      }
       canvas.translate(offset.dx, offset.dy);
     }
 
@@ -1086,6 +1102,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
 
   /// Llamado desde la botonera externa (fuera del juego).
   void restartRun() {
+    _map.resetRun(); // el mapa vuelve al desierto y a sus props iniciales
     for (final obstacle in _obstacles) {
       obstacle.removeFromParent();
     }
