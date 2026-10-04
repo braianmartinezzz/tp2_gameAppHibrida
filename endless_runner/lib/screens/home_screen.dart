@@ -207,6 +207,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                         key: const ValueKey('over'),
                                         gameState: state,
                                         onRestart: _restartAfterAd,
+                                        onRevive: _reviveWithAd,
                                       )
                                     : const SizedBox.shrink(
                                         key: ValueKey('alive'),
@@ -251,8 +252,33 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// botonera externa (anuncio simulado y después reinicio, requisito de la
   /// consigna).
   Future<void> _restartAfterAd() async {
-    await showAdModal(context);
+    await showInterstitialAd(context, widget.gameState);
+    if (!mounted) return;
     _game.restartRun();
+  }
+
+  bool _reviving = false;
+
+  /// "Revivir" desde el resumen: anuncio con premio (hay que verlo completo) y
+  /// la misma partida sigue con una vida. La cuenta Pro revive sin anuncio.
+  /// Una sola vez por partida (lo controla [GameState.canRevive]).
+  Future<void> _reviveWithAd() async {
+    final state = widget.gameState;
+    if (_reviving || !state.canRevive) return;
+    _reviving = true;
+    try {
+      if (!state.isPro) {
+        final watched = await showAdModal(
+          context,
+          hint: 'Mirá el anuncio completo para seguir jugando',
+          closeLabel: 'Revivir',
+        );
+        if (!watched || !mounted) return;
+      }
+      _game.reviveRun();
+    } finally {
+      _reviving = false;
+    }
   }
 }
 

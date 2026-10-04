@@ -124,6 +124,16 @@ class ChaseHorde {
     gap = min(maxGap, gap + amount);
   }
 
+  /// Distancia a la que queda la horda tras revivir: da aire para reaccionar.
+  static const double reviveGap = 0.65;
+
+  /// El jugador revivió: la horda deja de atraparlo y retrocede, pero conserva
+  /// su nivel de velocidad (revivir no borra la dificultad alcanzada).
+  void revive() {
+    caught = false;
+    gap = max(gap, reviveGap);
+  }
+
   /// Vuelve al estado de inicio de partida.
   void reset() {
     gap = startGap;

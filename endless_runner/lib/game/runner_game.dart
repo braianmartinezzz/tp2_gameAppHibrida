@@ -869,6 +869,35 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     }
   }
 
+  /// Revive tras el anuncio rewarded: sigue la MISMA partida (puntaje y
+  /// diamantes se conservan) con una vida, la horda más atrás, el camino
+  /// despejado y un respiro de invulnerabilidad. Una vez por partida.
+  void reviveRun() {
+    if (!gameState.revive()) return;
+    for (final obstacle in _obstacles) {
+      obstacle.removeFromParent();
+    }
+    _obstacles.clear();
+    for (final zombie in _zombies) {
+      zombie.removeFromParent();
+    }
+    _zombies.clear();
+    _zombieCooldown = _firstZombieDelay;
+    _sinceObstacleSpawn = 0;
+    _sinceZombieSpawn = 0;
+    horde.revive();
+    juice.reset();
+    _deathTimer = 0;
+    powerUps.invulnerableTimer = reviveInvulnerability;
+    _swipeX = 0;
+    _swipeY = 0;
+    _gestureConsumed = false;
+    resumeEngine();
+  }
+
+  /// Segundos de invulnerabilidad al revivir (más largo que el de un golpe).
+  static const double reviveInvulnerability = 2.5;
+
   /// Llamado desde la botonera externa (fuera del juego).
   void restartRun() {
     for (final obstacle in _obstacles) {

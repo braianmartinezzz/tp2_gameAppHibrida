@@ -1,18 +1,37 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 
+import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+
+/// Anuncio que corta el juego (al reiniciar la partida). La cuenta Pro no lo
+/// ve: es el beneficio de pagar. Los anuncios voluntarios con premio (revivir,
+/// +diamantes) usan [showAdModal] directo, porque el jugador los elige.
+Future<void> showInterstitialAd(BuildContext context, GameState state) async {
+  if (state.isPro) return;
+  await showAdModal(context);
+}
 
 /// Publicidad simulada tipo modal con countdown y formato de anuncio.
 /// Se muestra cada vez que se reinicia la partida (requisito de la consigna).
-Future<void> showAdModal(BuildContext context) {
-  return showGeneralDialog<void>(
+///
+/// Devuelve `true` si el anuncio se vio completo (se cerró con el botón una
+/// vez terminado el countdown) y `false` si se salió antes (p. ej. con el
+/// botón "atrás"): los anuncios con premio solo pagan en el primer caso.
+Future<bool> showAdModal(
+  BuildContext context, {
+  String? hint,
+  String closeLabel = 'Cerrar',
+}) async {
+  final watched = await showGeneralDialog<bool>(
     context: context,
     barrierDismissible: false,
     barrierLabel: 'Anuncio',
     barrierColor: Colors.black54,
     transitionDuration: const Duration(milliseconds: 220),
-    pageBuilder: (context, _, __) => const SafeArea(child: _AdModalContent()),
+    pageBuilder: (context, _, __) => SafeArea(
+      child: _AdModalContent(hint: hint, closeLabel: closeLabel),
+    ),
     // Entrada: fundido + escala suave; salida: el mismo recorrido a la inversa.
     transitionBuilder: (context, animation, _, child) {
       final curved = CurvedAnimation(
@@ -29,10 +48,15 @@ Future<void> showAdModal(BuildContext context) {
       );
     },
   );
+  return watched ?? false;
 }
 
 class _AdModalContent extends StatefulWidget {
-  const _AdModalContent();
+  const _AdModalContent({this.hint, this.closeLabel = 'Cerrar'});
+
+  /// Texto opcional bajo la barra de progreso (qué se gana al terminar).
+  final String? hint;
+  final String closeLabel;
 
   @override
   State<_AdModalContent> createState() => _AdModalContentState();
@@ -67,7 +91,11 @@ class _AdModalContentState extends State<_AdModalContent> {
     final canClose = _secondsLeft <= 0;
     final progress = (_total - _secondsLeft) / _total;
 
-    return AlertDialog(
+    // Hasta que termina el countdown el anuncio no se puede cerrar, ni con el
+    // botón "atrás": así un premio nunca se cobra sin verlo.
+    return PopScope(
+      canPop: canClose,
+      child: AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
       titlePadding: const EdgeInsets.fromLTRB(22, 20, 22, 0),
       contentPadding: const EdgeInsets.fromLTRB(22, 14, 22, 0),
@@ -164,17 +192,32 @@ class _AdModalContentState extends State<_AdModalContent> {
               ),
             ),
           ),
+          if (widget.hint != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              widget.hint!,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+          ],
         ],
       ),
       actions: [
         SizedBox(
           width: double.infinity,
           child: FilledButton(
-            onPressed: canClose ? () => Navigator.of(context).pop() : null,
-            child: Text(canClose ? 'Cerrar' : 'Cerrar (${_secondsLeft}s)'),
+            onPressed: canClose ? () => Navigator.of(context).pop(true) : null,
+            child: Text(
+              canClose
+                  ? widget.closeLabel
+                  : '${widget.closeLabel} (${_secondsLeft}s)',
+            ),
           ),
         ),
       ],
+    ),
     );
   }
 }

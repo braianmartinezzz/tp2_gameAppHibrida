@@ -18,9 +18,14 @@ class GameOverOverlay extends StatelessWidget {
     super.key,
     required this.gameState,
     required this.onRestart,
+    this.onRevive,
   });
 
   final GameState gameState;
+
+  /// Revivir (anuncio con premio; gratis para Pro). Si es null, o si ya se
+  /// usó en la partida, el botón no aparece.
+  final VoidCallback? onRevive;
 
   /// Camino de reinicio. En la app real pasa por el anuncio simulado (mismo
   /// requisito que la botonera externa); en los tests es un contador.
@@ -126,6 +131,30 @@ class GameOverOverlay extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 18),
+                      if (onRevive != null && gameState.canRevive) ...[
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            key: const ValueKey('revive-button'),
+                            onPressed: onRevive,
+                            icon: Icon(
+                              gameState.isPro
+                                  ? Icons.favorite_rounded
+                                  : Icons.ondemand_video_rounded,
+                            ),
+                            label: Text(
+                              gameState.isPro
+                                  ? 'Revivir gratis (Pro)'
+                                  : 'Revivir viendo un anuncio',
+                            ),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppColors.gem,
+                              foregroundColor: Colors.white,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton.icon(

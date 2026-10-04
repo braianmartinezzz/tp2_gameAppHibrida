@@ -78,6 +78,30 @@ class GameState {
 
   bool get isPro => accountType.value == 'pro';
 
+  // --- Revivir ---------------------------------------------------------------
+
+  /// true si en esta partida ya se usó el revivir (una sola vez por partida).
+  bool revivedThisRun = false;
+
+  /// Récord vigente antes de que [finishRun] lo actualizara: se restaura al
+  /// revivir para que un nuevo récord no se "celebre" dos veces.
+  int _bestBeforeFinish = 0;
+
+  /// true si la partida terminó y todavía se puede ofrecer revivir.
+  bool get canRevive => isGameOver.value && !revivedThisRun;
+
+  /// Reanuda la partida terminada con una sola vida. `false` si no
+  /// corresponde (no terminó, o ya se revivió en esta partida).
+  bool revive() {
+    if (!canRevive) return false;
+    revivedThisRun = true;
+    bestScore.value = _bestBeforeFinish;
+    isNewRecord.value = false;
+    lives.value = 1;
+    isGameOver.value = false;
+    return true;
+  }
+
   // --- Mejoras ---------------------------------------------------------------
 
   /// Nivel comprado de cada mejora (id -> nivel). Se reemplaza el mapa entero
@@ -261,10 +285,12 @@ class GameState {
   /// no pisa lo que ya se celebró.
   void finishRun() {
     if (isGameOver.value) return;
+    _bestBeforeFinish = bestScore.value;
     isNewRecord.value = score.value > bestScore.value;
     if (isNewRecord.value) bestScore.value = score.value;
     isGameOver.value = true;
-    recordEvent(ChallengeMetric.runs);
+    // Una partida revivida cuenta una sola vez para los desafíos.
+    if (!revivedThisRun) recordEvent(ChallengeMetric.runs);
     save();
   }
 
@@ -383,6 +409,7 @@ class GameState {
     runDiamonds.value = 0;
     lives.value = maxLives;
     isNewRecord.value = false;
+    revivedThisRun = false;
     isGameOver.value = false;
     // bestScore NO se toca: el récord es lo único que sobrevive a un reinicio.
   }

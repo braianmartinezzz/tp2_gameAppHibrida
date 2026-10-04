@@ -40,8 +40,8 @@ class _RewardsContentState extends State<_RewardsContent> {
   GameState get state => widget.gameState;
 
   Future<void> _watchAd() async {
-    await showAdModal(context);
-    if (!mounted) return;
+    final watched = await showAdModal(context);
+    if (!mounted || !watched) return;
     final amount = state.grantAdReward();
     setState(() => _lastAdReward = amount);
   }

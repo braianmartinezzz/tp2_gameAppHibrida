@@ -19,8 +19,9 @@ class GameControls extends StatelessWidget {
   final GameState gameState;
 
   Future<void> _onRestart(BuildContext context) async {
-    // Publicidad simulada (modal) antes de reiniciar partida.
-    await showAdModal(context);
+    // Publicidad simulada (modal) antes de reiniciar partida; la cuenta Pro
+    // la saltea.
+    await showInterstitialAd(context, gameState);
     game.restartRun();
   }
 
