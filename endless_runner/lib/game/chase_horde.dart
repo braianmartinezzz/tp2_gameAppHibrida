@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import 'perspective.dart';
+import 'zombie_sprites.dart';
 
 /// Horda de zombies que persigue al corredor desde atrás (estilo Subway
 /// Surfers).
@@ -160,13 +161,25 @@ class ChaseHorde {
     [-0.7, -0.3, 0.3, 0.7],
   ];
 
-  static const Color _skin = Color(0xFF86B25A);
-  static const Color _hair = Color(0xFF2E3B22);
+  static const Color _skin = Color(0xFF7F9C68);
   static const Color _fog = Color(0xFF3A0B0B);
+  static const List<Color> _hairs = [
+    Color(0xFF2B2018),
+    Color(0xFF3A3A3A),
+    Color(0xFF5A4630),
+    Color(0xFF1A1A1E),
+  ];
   static const List<Color> _clothes = [
     Color(0xFF5B4A6B),
     Color(0xFF3E4C63),
     Color(0xFF6B4A3E),
+    Color(0xFF4A5A44),
+    Color(0xFF5E5E5E),
+  ];
+  static const List<Color> _pants = [
+    Color(0xFF2B3342),
+    Color(0xFF3A3328),
+    Color(0xFF23262C),
   ];
 
   /// Y de pantalla del frente de la horda (los pies de la fila de adelante)
@@ -236,8 +249,19 @@ class ChaseHorde {
     }
   }
 
-  /// Un zombi visto de espaldas, corriendo hacia el jugador con los brazos
-  /// estirados. Todo con formas simples (sin texto ni assets).
+  /// Número pseudoaleatorio estable en [0, 1) a partir de [n]: cada zombi de la
+  /// horda conserva su altura, ropa y peinado entre cuadros sin crear un
+  /// `Random` por figura.
+  static double _unit(int n) => (sin(n * 12.9898) * 43758.5453).abs() % 1.0;
+
+  /// Paleta de cada zombi de la horda (clave: su semilla), armada una vez.
+  static final Map<int, Map<String, Color>> _palettes = {};
+
+  /// Un zombi visto de espaldas, en pixel-art de 8 bits como el corredor: corre
+  /// encorvado hacia el jugador con los brazos arriba. Cada uno es distinto
+  /// (semilla = fila e índice): altura, estilo (camiseta, campera, capucha o
+  /// torso al aire), peinado, colores de ropa y pelo. Las filas de atrás se
+  /// oscurecen para meterse en la niebla.
   void _drawZombie(
     Canvas canvas, {
     required double cx,
@@ -247,13 +271,14 @@ class ChaseHorde {
     required int index,
   }) {
     final seed = row * 7 + index;
-    final w = h * 0.5;
-    final shade = (row * 0.14).clamp(0.0, 1.0).toDouble();
-    Color tone(Color c) => Color.lerp(c, Colors.black, shade)!;
+    h = h * (0.92 + 0.16 * _unit(seed * 3 + 1));
 
+    final style = (seed * 5 + index) % 4;
+    final variants = ZombieSprites.back[style];
+    final variant = variants[(seed * 3 + index) % variants.length];
+    final sprite = variant[sin(_phase * 7 + seed * 2.3) >= 0 ? 0 : 1];
+    final w = h * sprite.width / sprite.height;
     final bob = sin(_phase * 9 + seed * 1.7).abs() * h * 0.03;
-    final swing = sin(_phase * 7 + seed * 2.3);
-    final y = feetY - bob;
 
     // Sombra en el piso.
     canvas.drawOval(
@@ -262,66 +287,24 @@ class ChaseHorde {
         width: w * 1.4,
         height: h * 0.1,
       ),
-      Paint()..color = const Color(0x55000000),
+      Paint()..color = const Color(0x66000000),
     );
 
-    // Piernas: una se levanta mientras la otra apoya.
-    final legPaint = Paint()..color = tone(const Color(0xFF2B3342));
-    final legH = h * 0.24;
-    final liftL = max(0.0, swing) * h * 0.05;
-    final liftR = max(0.0, -swing) * h * 0.05;
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(cx - w * 0.36, y - legH - liftL, w * 0.3, legH),
-        Radius.circular(w * 0.1),
+    final palette = _palettes.putIfAbsent(
+      seed,
+      () => ZombiePalette.build(
+        skin: _skin,
+        clothes: _clothes[seed % _clothes.length],
+        eyes: const Color(0xFFFFFFFF),
+        hair: _hairs[seed % _hairs.length],
+        pants: _pants[(seed ~/ 2) % _pants.length],
+        shade: (row * 0.14).clamp(0.0, 1.0).toDouble(),
       ),
-      legPaint,
     );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(cx + w * 0.06, y - legH - liftR, w * 0.3, legH),
-        Radius.circular(w * 0.1),
-      ),
-      legPaint,
-    );
-
-    // Brazos estirados hacia adelante (hacia arriba en pantalla).
-    final armPaint = Paint()
-      ..color = tone(_skin)
-      ..strokeWidth = h * 0.085
-      ..strokeCap = StrokeCap.round;
-    canvas.drawLine(
-      Offset(cx - w * 0.5, y - h * 0.56),
-      Offset(cx - w * 0.8, y - h * 0.86 - swing * h * 0.05),
-      armPaint,
-    );
-    canvas.drawLine(
-      Offset(cx + w * 0.5, y - h * 0.56),
-      Offset(cx + w * 0.8, y - h * 0.86 + swing * h * 0.05),
-      armPaint,
-    );
-
-    // Torso con la ropa rota (parche de piel en la espalda).
-    final torso = Rect.fromLTRB(cx - w * 0.5, y - h * 0.62, cx + w * 0.5, y - h * 0.22);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(torso, Radius.circular(w * 0.2)),
-      Paint()..color = tone(_clothes[seed % _clothes.length]),
-    );
-    canvas.drawRect(
-      Rect.fromLTWH(cx - w * 0.14, y - h * 0.5, w * 0.28, h * 0.1),
-      Paint()..color = tone(_skin).withValues(alpha: 0.85),
-    );
-
-    // Cabeza (nuca) con el pelo desordenado arriba.
-    final head = Offset(cx, y - h * 0.76);
-    final headR = h * 0.17;
-    canvas.drawCircle(head, headR, Paint()..color = tone(_skin));
-    canvas.drawArc(
-      Rect.fromCircle(center: head, radius: headR),
-      pi,
-      pi,
-      true,
-      Paint()..color = tone(_hair),
+    sprite.draw(
+      canvas,
+      Rect.fromLTWH(cx - w * 0.5, feetY - bob - h, w, h),
+      palette,
     );
   }
 }

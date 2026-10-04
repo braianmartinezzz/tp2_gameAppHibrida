@@ -1,0 +1,1646 @@
+diff --git a/endless_runner/lib/game/chase_horde.dart b/endless_runner/lib/game/chase_horde.dart
+index 78cab3f..a152908 100644
+--- a/endless_runner/lib/game/chase_horde.dart
++++ b/endless_runner/lib/game/chase_horde.dart
+@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
+ import 'package:flutter/material.dart';
+ 
+ import 'perspective.dart';
++import 'zombie_sprites.dart';
+ 
+ /// Horda de zombies que persigue al corredor desde atrás (estilo Subway
+ /// Surfers).
+@@ -160,13 +161,25 @@ class ChaseHorde {
+     [-0.7, -0.3, 0.3, 0.7],
+   ];
+ 
+-  static const Color _skin = Color(0xFF86B25A);
+-  static const Color _hair = Color(0xFF2E3B22);
++  static const Color _skin = Color(0xFF7F9C68);
+   static const Color _fog = Color(0xFF3A0B0B);
++  static const List<Color> _hairs = [
++    Color(0xFF2B2018),
++    Color(0xFF3A3A3A),
++    Color(0xFF5A4630),
++    Color(0xFF1A1A1E),
++  ];
+   static const List<Color> _clothes = [
+     Color(0xFF5B4A6B),
+     Color(0xFF3E4C63),
+     Color(0xFF6B4A3E),
++    Color(0xFF4A5A44),
++    Color(0xFF5E5E5E),
++  ];
++  static const List<Color> _pants = [
++    Color(0xFF2B3342),
++    Color(0xFF3A3328),
++    Color(0xFF23262C),
+   ];
+ 
+   /// Y de pantalla del frente de la horda (los pies de la fila de adelante)
+@@ -236,8 +249,19 @@ class ChaseHorde {
+     }
+   }
+ 
+-  /// Un zombi visto de espaldas, corriendo hacia el jugador con los brazos
+-  /// estirados. Todo con formas simples (sin texto ni assets).
++  /// Número pseudoaleatorio estable en [0, 1) a partir de [n]: cada zombi de la
++  /// horda conserva su altura, ropa y peinado entre cuadros sin crear un
++  /// `Random` por figura.
++  static double _unit(int n) => (sin(n * 12.9898) * 43758.5453).abs() % 1.0;
++
++  /// Paleta de cada zombi de la horda (clave: su semilla), armada una vez.
++  static final Map<int, Map<String, Color>> _palettes = {};
++
++  /// Un zombi visto de espaldas, en pixel-art de 8 bits como el corredor: corre
++  /// encorvado hacia el jugador con los brazos arriba. Cada uno es distinto
++  /// (semilla = fila e índice): altura, estilo (camiseta, campera, capucha o
++  /// torso al aire), peinado, colores de ropa y pelo. Las filas de atrás se
++  /// oscurecen para meterse en la niebla.
+   void _drawZombie(
+     Canvas canvas, {
+     required double cx,
+@@ -247,13 +271,14 @@ class ChaseHorde {
+     required int index,
+   }) {
+     final seed = row * 7 + index;
+-    final w = h * 0.5;
+-    final shade = (row * 0.14).clamp(0.0, 1.0).toDouble();
+-    Color tone(Color c) => Color.lerp(c, Colors.black, shade)!;
++    h = h * (0.92 + 0.16 * _unit(seed * 3 + 1));
+ 
++    final style = (seed * 5 + index) % 4;
++    final variants = ZombieSprites.back[style];
++    final variant = variants[(seed * 3 + index) % variants.length];
++    final sprite = variant[sin(_phase * 7 + seed * 2.3) >= 0 ? 0 : 1];
++    final w = h * sprite.width / sprite.height;
+     final bob = sin(_phase * 9 + seed * 1.7).abs() * h * 0.03;
+-    final swing = sin(_phase * 7 + seed * 2.3);
+-    final y = feetY - bob;
+ 
+     // Sombra en el piso.
+     canvas.drawOval(
+@@ -262,66 +287,24 @@ class ChaseHorde {
+         width: w * 1.4,
+         height: h * 0.1,
+       ),
+-      Paint()..color = const Color(0x55000000),
++      Paint()..color = const Color(0x66000000),
+     );
+ 
+-    // Piernas: una se levanta mientras la otra apoya.
+-    final legPaint = Paint()..color = tone(const Color(0xFF2B3342));
+-    final legH = h * 0.24;
+-    final liftL = max(0.0, swing) * h * 0.05;
+-    final liftR = max(0.0, -swing) * h * 0.05;
+-    canvas.drawRRect(
+-      RRect.fromRectAndRadius(
+-        Rect.fromLTWH(cx - w * 0.36, y - legH - liftL, w * 0.3, legH),
+-        Radius.circular(w * 0.1),
++    final palette = _palettes.putIfAbsent(
++      seed,
++      () => ZombiePalette.build(
++        skin: _skin,
++        clothes: _clothes[seed % _clothes.length],
++        eyes: const Color(0xFFFFFFFF),
++        hair: _hairs[seed % _hairs.length],
++        pants: _pants[(seed ~/ 2) % _pants.length],
++        shade: (row * 0.14).clamp(0.0, 1.0).toDouble(),
+       ),
+-      legPaint,
+     );
+-    canvas.drawRRect(
+-      RRect.fromRectAndRadius(
+-        Rect.fromLTWH(cx + w * 0.06, y - legH - liftR, w * 0.3, legH),
+-        Radius.circular(w * 0.1),
+-      ),
+-      legPaint,
+-    );
+-
+-    // Brazos estirados hacia adelante (hacia arriba en pantalla).
+-    final armPaint = Paint()
+-      ..color = tone(_skin)
+-      ..strokeWidth = h * 0.085
+-      ..strokeCap = StrokeCap.round;
+-    canvas.drawLine(
+-      Offset(cx - w * 0.5, y - h * 0.56),
+-      Offset(cx - w * 0.8, y - h * 0.86 - swing * h * 0.05),
+-      armPaint,
+-    );
+-    canvas.drawLine(
+-      Offset(cx + w * 0.5, y - h * 0.56),
+-      Offset(cx + w * 0.8, y - h * 0.86 + swing * h * 0.05),
+-      armPaint,
+-    );
+-
+-    // Torso con la ropa rota (parche de piel en la espalda).
+-    final torso = Rect.fromLTRB(cx - w * 0.5, y - h * 0.62, cx + w * 0.5, y - h * 0.22);
+-    canvas.drawRRect(
+-      RRect.fromRectAndRadius(torso, Radius.circular(w * 0.2)),
+-      Paint()..color = tone(_clothes[seed % _clothes.length]),
+-    );
+-    canvas.drawRect(
+-      Rect.fromLTWH(cx - w * 0.14, y - h * 0.5, w * 0.28, h * 0.1),
+-      Paint()..color = tone(_skin).withValues(alpha: 0.85),
+-    );
+-
+-    // Cabeza (nuca) con el pelo desordenado arriba.
+-    final head = Offset(cx, y - h * 0.76);
+-    final headR = h * 0.17;
+-    canvas.drawCircle(head, headR, Paint()..color = tone(_skin));
+-    canvas.drawArc(
+-      Rect.fromCircle(center: head, radius: headR),
+-      pi,
+-      pi,
+-      true,
+-      Paint()..color = tone(_hair),
++    sprite.draw(
++      canvas,
++      Rect.fromLTWH(cx - w * 0.5, feetY - bob - h, w, h),
++      palette,
+     );
+   }
+ }
+diff --git a/endless_runner/lib/game/zombie_obstacle.dart b/endless_runner/lib/game/zombie_obstacle.dart
+index ca71ad5..20ac1d7 100644
+--- a/endless_runner/lib/game/zombie_obstacle.dart
++++ b/endless_runner/lib/game/zombie_obstacle.dart
+@@ -4,6 +4,7 @@ import 'package:flame/components.dart';
+ import 'package:flutter/material.dart';
+ 
+ import 'depth_component.dart';
++import 'zombie_sprites.dart';
+ 
+ /// Cómo se mueve un zombi de costado mientras avanza hacia el jugador.
+ enum ZombieBehavior {
+@@ -259,6 +260,29 @@ class ZombieObstacle extends DepthComponent {
+   }
+ 
+   // --- Dibujo ----------------------------------------------------------------
++  //
++  // Pixel-art de 8 bits, en la línea del corredor (ver zombie_sprites.dart):
++  //  - slow: tanque panzón y calvo, con suturas y la panza al aire.
++  //  - normal: oficinista con corbata floja y costillas a la vista.
++  //  - fast: flaco, de capucha roja, ojos rojos y mandíbula desencajada.
++  // Cada uno tiene dos cuadros que se alternan al caminar.
++
++  /// Paleta de cada tipo, armada una sola vez.
++  static final Map<ZombieKind, Map<String, Color>> _palettes = {
++    for (final k in ZombieKind.values)
++      k: ZombiePalette.build(
++        skin: k.skin,
++        clothes: k.clothes,
++        eyes: k.eyes,
++      ),
++  };
++
++  PixelSprite _sprite(int frame) => switch (kind) {
++        ZombieKind.slow => frame == 0 ? ZombieSprites.slow0 : ZombieSprites.slow1,
++        ZombieKind.normal =>
++          frame == 0 ? ZombieSprites.normal0 : ZombieSprites.normal1,
++        ZombieKind.fast => frame == 0 ? ZombieSprites.fast0 : ZombieSprites.fast1,
++      };
+ 
+   @override
+   void render(Canvas canvas) {
+@@ -271,9 +295,6 @@ class ZombieObstacle extends DepthComponent {
+     final sway = sin(_time * kind.stepRate + _phase); // -1..1
+     final bob = sway.abs() * h * 0.02;
+ 
+-    final dark = Color.lerp(kind.clothes, Colors.black, 0.45)!;
+-    final skin = kind.skin.withValues(alpha: a);
+-
+     // Sombra y aro del color del tipo en el piso.
+     final groundH = (h * 0.06 + 3).clamp(3.0, 12.0).toDouble();
+     canvas.drawOval(
+@@ -282,7 +303,7 @@ class ZombieObstacle extends DepthComponent {
+         width: w * 1.05,
+         height: groundH,
+       ),
+-      Paint()..color = const Color(0xFF000000).withValues(alpha: 0.28 * a),
++      Paint()..color = const Color(0xFF000000).withValues(alpha: 0.32 * a),
+     );
+     canvas.drawOval(
+       Rect.fromCenter(
+@@ -312,146 +333,11 @@ class ZombieObstacle extends DepthComponent {
+       }
+     }
+ 
+-    // Piernas: una se levanta mientras la otra apoya.
+-    final legH = h * 0.26;
+-    final legW = w * 0.26;
+-    final liftL = max(0.0, sway) * h * 0.05;
+-    final liftR = max(0.0, -sway) * h * 0.05;
+-    final legPaint = Paint()..color = dark.withValues(alpha: a);
+-    canvas.drawRRect(
+-      RRect.fromRectAndRadius(
+-        Rect.fromLTWH(w * 0.5 - legW * 1.1, h - legH - liftL, legW, legH),
+-        Radius.circular(legW * 0.3),
+-      ),
+-      legPaint,
+-    );
+-    canvas.drawRRect(
+-      RRect.fromRectAndRadius(
+-        Rect.fromLTWH(w * 0.5 + legW * 0.1, h - legH - liftR, legW, legH),
+-        Radius.circular(legW * 0.3),
+-      ),
+-      legPaint,
+-    );
+-
+-    // Torso con la ropa rota.
+-    final torsoW = w * kind.torso;
+-    final top = h * 0.30 - bob;
+-    final bottom = h - legH + h * 0.02;
+-    final torso = Rect.fromLTRB(
+-      w * 0.5 - torsoW * 0.5,
+-      top,
+-      w * 0.5 + torsoW * 0.5,
+-      bottom,
+-    );
+-    canvas.drawRRect(
+-      RRect.fromRectAndRadius(torso, Radius.circular(torsoW * 0.18)),
+-      Paint()
+-        ..shader = LinearGradient(
+-          colors: [
+-            kind.clothes.withValues(alpha: a),
+-            dark.withValues(alpha: a),
+-          ],
+-          begin: Alignment.topCenter,
+-          end: Alignment.bottomCenter,
+-        ).createShader(torso),
+-    );
+-    // Dobladillo roto: dientes de piel asomando abajo.
+-    final teeth = Path();
+-    const spikes = 4;
+-    final spikeW = torsoW / spikes;
+-    teeth.moveTo(torso.left, bottom);
+-    for (var i = 0; i < spikes; i++) {
+-      teeth
+-        ..lineTo(torso.left + spikeW * (i + 0.5), bottom - h * 0.05)
+-        ..lineTo(torso.left + spikeW * (i + 1), bottom);
+-    }
+-    teeth.close();
+-    canvas.drawPath(teeth, Paint()..color = skin);
+-    // Mancha oscura en el pecho.
+-    canvas.drawOval(
+-      Rect.fromLTWH(
+-        torso.left + torsoW * 0.15,
+-        top + (bottom - top) * 0.35,
+-        torsoW * 0.3,
+-        (bottom - top) * 0.18,
+-      ),
+-      Paint()..color = const Color(0xFF4A1414).withValues(alpha: 0.55 * a),
+-    );
+-
+-    // Brazos estirados hacia el jugador, balanceándose.
+-    final armPaint = Paint()
+-      ..color = skin
+-      ..strokeWidth = max(2.0, w * 0.13)
+-      ..strokeCap = StrokeCap.round;
+-    final shoulderY = top + h * 0.07;
+-    canvas.drawLine(
+-      Offset(torso.left, shoulderY),
+-      Offset(0, shoulderY - h * 0.02 + sway * h * 0.04),
+-      armPaint,
+-    );
+-    canvas.drawLine(
+-      Offset(torso.right, shoulderY),
+-      Offset(w, shoulderY - h * 0.02 - sway * h * 0.04),
+-      armPaint,
+-    );
+-
+-    // Cabeza.
+-    final headR = min(w * 0.27, h * 0.13);
+-    final head = Offset(w * 0.5 + sway * w * 0.03, top - headR * 0.35);
+-    canvas.drawCircle(head, headR, Paint()..color = skin);
+-    canvas.drawArc(
+-      Rect.fromCircle(center: head, radius: headR),
+-      pi,
+-      pi,
+-      true,
+-      Paint()..color = dark.withValues(alpha: a),
+-    );
+-
+-    // Ojos brillantes (un halo suave detrás de cada uno).
+-    final eyeY = head.dy + headR * 0.05;
+-    for (final side in [-1.0, 1.0]) {
+-      final c = Offset(head.dx + side * headR * 0.4, eyeY);
+-      canvas.drawCircle(
+-        c,
+-        headR * 0.34,
+-        Paint()..color = kind.eyes.withValues(alpha: 0.28 * a),
+-      );
+-      canvas.drawCircle(
+-        c,
+-        headR * 0.18,
+-        Paint()..color = kind.eyes.withValues(alpha: a),
+-      );
+-    }
+-
+-    // Boca abierta con dientes.
+-    final mouth = Rect.fromCenter(
+-      center: Offset(head.dx, head.dy + headR * 0.55),
+-      width: headR * 0.9,
+-      height: headR * 0.32,
+-    );
+-    canvas.drawRRect(
+-      RRect.fromRectAndRadius(mouth, Radius.circular(headR * 0.1)),
+-      Paint()..color = const Color(0xFF2A0C0C).withValues(alpha: a),
+-    );
+-    final tooth = Paint()..color = const Color(0xFFF2EFE0).withValues(alpha: a);
+-    for (var i = 0; i < 3; i++) {
+-      canvas.drawRect(
+-        Rect.fromLTWH(
+-          mouth.left + mouth.width * (0.12 + 0.3 * i),
+-          mouth.top,
+-          mouth.width * 0.16,
+-          mouth.height * 0.4,
+-        ),
+-        tooth,
+-      );
+-    }
+-
+-    canvas.drawRRect(
+-      RRect.fromRectAndRadius(torso, Radius.circular(torsoW * 0.18)),
+-      Paint()
+-        ..color = const Color(0xFF1B2233).withValues(alpha: 0.45 * a)
+-        ..style = PaintingStyle.stroke
+-        ..strokeWidth = 1.2,
++    _sprite(sway >= 0 ? 0 : 1).draw(
++      canvas,
++      Rect.fromLTWH(0, -bob, w, h),
++      _palettes[kind]!,
++      alpha: a,
+     );
+   }
+ }
+diff --git a/endless_runner/lib/game/zombie_sprites.dart b/endless_runner/lib/game/zombie_sprites.dart
+new file mode 100644
+index 0000000..c137329
+--- /dev/null
++++ b/endless_runner/lib/game/zombie_sprites.dart
+@@ -0,0 +1,1264 @@
++import 'dart:ui';
++
++/// Sprites de 8 bits de los zombis, dibujados como cuadrículas de texto: cada
++/// carácter es un píxel y '.' es transparente. Siguen la misma lógica que el
++/// atlas del corredor (contorno oscuro, luz arriba a la izquierda, paleta
++/// chica), pero sin assets: son constantes en código, así que no hay carga
++/// asíncrona ni nada que pueda faltar.
++///
++/// Letras de la paleta (ver [ZombiePalette.build]):
++///  O contorno · K/k/q piel (base/sombra/luz) · S/s/z ropa · P/p pantalón
++///  H/h pelo · W/w camisa blanca · D zapato · B/b sangre (clara/oscura)
++///  T hueso/dientes · R/r corbata · E ojos · N mancha.
++class PixelSprite {
++  PixelSprite(this.rows)
++      : width = rows.first.length,
++        height = rows.length;
++
++  final List<String> rows;
++  final int width;
++  final int height;
++
++  Map<String, Path>? _paths;
++
++  /// Un [Path] por letra, armado la primera vez que se dibuja y reusado
++  /// después: los píxeles contiguos de una fila se funden en un solo rectángulo.
++  Map<String, Path> get paths => _paths ??= _build();
++
++  Map<String, Path> _build() {
++    final out = <String, Path>{};
++    for (var y = 0; y < height; y++) {
++      final row = rows[y];
++      var x = 0;
++      while (x < width) {
++        final c = row[x];
++        var end = x;
++        while (end < width && row[end] == c) {
++          end++;
++        }
++        if (c != '.') {
++          (out[c] ??= Path()).addRect(
++            Rect.fromLTWH(x.toDouble(), y.toDouble(), (end - x).toDouble(), 1),
++          );
++        }
++        x = end;
++      }
++    }
++    return out;
++  }
++
++  /// Dibuja el sprite estirado a [dst] con [palette]. Sin antialias para que
++  /// los píxeles queden nítidos a cualquier escala; [alpha] aplica la fundida.
++  void draw(
++    Canvas canvas,
++    Rect dst,
++    Map<String, Color> palette, {
++    double alpha = 1,
++  }) {
++    canvas.save();
++    canvas.translate(dst.left, dst.top);
++    canvas.scale(dst.width / width, dst.height / height);
++    final paint = Paint()..isAntiAlias = false;
++    paths.forEach((letter, path) {
++      final color = palette[letter];
++      if (color == null) return;
++      paint.color = alpha >= 1 ? color : color.withValues(alpha: alpha);
++      canvas.drawPath(path, paint);
++    });
++    canvas.restore();
++  }
++}
++
++/// Paletas de los zombis.
++abstract final class ZombiePalette {
++  static const Color _ink = Color(0xFF140E0C);
++
++  static Color _mix(Color a, Color b, double t) => Color.lerp(a, b, t)!;
++
++  /// Paleta completa a partir de los colores base. [shade] (0..1) oscurece
++  /// todo menos los ojos: las filas lejanas de la horda se hunden en la niebla.
++  static Map<String, Color> build({
++    required Color skin,
++    required Color clothes,
++    required Color eyes,
++    Color hair = const Color(0xFF2A2018),
++    Color pants = const Color(0xFF2E3544),
++    double shade = 0,
++  }) {
++    Color t(Color c) => shade <= 0 ? c : _mix(c, const Color(0xFF000000), shade);
++    const black = Color(0xFF000000);
++    const white = Color(0xFFFFFFFF);
++    return {
++      'O': _ink,
++      'K': t(skin),
++      'k': t(_mix(skin, const Color(0xFF0A0F08), 0.38)),
++      'q': t(_mix(skin, white, 0.22)),
++      'S': t(clothes),
++      's': t(_mix(clothes, black, 0.40)),
++      'z': t(_mix(clothes, white, 0.16)),
++      'P': t(pants),
++      'p': t(_mix(pants, black, 0.35)),
++      'H': t(hair),
++      'h': t(_mix(hair, black, 0.35)),
++      'W': t(const Color(0xFFD8D3C4)),
++      'w': t(const Color(0xFF9E998C)),
++      'D': t(const Color(0xFF1B1511)),
++      'B': t(const Color(0xFF8E1B1B)),
++      'b': t(const Color(0xFF3A0808)),
++      'T': t(const Color(0xFFE8E0C8)),
++      'R': t(const Color(0xFF8A2020)),
++      'r': t(const Color(0xFF5A1414)),
++      'E': eyes,
++      'N': t(_mix(skin, const Color(0xFF3C5230), 0.5)),
++    };
++  }
++}
++
++/// Cuadros de animación de cada zombi. Cada lista tiene dos cuadros que se
++/// alternan al caminar (una pierna y una mano se levantan mientras la otra
++/// apoya).
++abstract final class ZombieSprites {
++  static final PixelSprite slow0 = PixelSprite(_slow[0]);
++  static final PixelSprite slow1 = PixelSprite(_slow[1]);
++  static final PixelSprite normal0 = PixelSprite(_normal[0]);
++  static final PixelSprite normal1 = PixelSprite(_normal[1]);
++  static final PixelSprite fast0 = PixelSprite(_fast[0]);
++  static final PixelSprite fast1 = PixelSprite(_fast[1]);
++
++  static const List<List<String>> _slow = [
++    [
++      '...........OO...........',
++      '.......O.OOqkOO.........',
++      '.......OOOqKKqkO........',
++      '.......OqOOKKKKkO.......',
++      '......OOOOKKKKOOOO......',
++      '......OqKKKKKKKKkO......',
++      '.....OOWOKKKKOWOKkO.....',
++      '.O...OOEEKKKKOEEKkO.....',
++      'OqO..OOOOKKKKOOOKkO.....',
++      'qOqO..OqKKKkkKKKkO....O.',
++      'qqkO..OkTOTOTOTOkO...OqO',
++      'kKkO...OOOOOOOOOO...OqOq',
++      'OqKkO..OOTOROTOOO...Oqqk',
++      'OqKkO..OkBkkkkBkO...OkKk',
++      'OqKkOOOOOBOOOOOOOOOO.Oqk',
++      'OqKKzzzzqqqqqqqqzzzsOOqk',
++      'OqKKKKSSKKKKKKKKSSSSqqKk',
++      'OqKKKKSSKKKKKKKKSSSSKKKk',
++      'OqKKKKSSKKKKKKKKSSSSKKKk',
++      'OqKKKKKKKKKKKKbBKKSKkKKk',
++      'OqBKKKKKKKKKKKbKKKskOqBk',
++      'OqKKKKKKKKKKKKKbBKKkOqKk',
++      'OqKKKKkkkkkkKKKbKKKkOkKk',
++      'OkkkKKKKKKKkKKKKbBKkOOkk',
++      '.OOOqKKKKKkOqKKbKKKkO.OO',
++      '...OqKKkkkkkkKKbBKKkO...',
++      '...OqKKKKKKKKKKKKKKkO...',
++      '...OqKKKKKKKKKKKKKKkO...',
++      '...OkKkkkkkkKKKKKKKkO...',
++      '....OqKKKKKKKKKKKKkO....',
++      '....OqKKKKKKKKKKKKkO....',
++      '...OPPKKKKKKKKKKKKPpO...',
++      '...OPPPKKKKKKKKKKPPpO...',
++      '...OPPPPPKKkkKKBBPPpO...',
++      '...OPpPpPppOOPBBBPPpO...',
++      '...OpOpOpOpOOPPPPPPpO...',
++      '....OqKqKkO.OPPPPPPpO...',
++      '....OqKKKkO.OPpPpPppO...',
++      '....OqKKKkO.OpOpOpOpO...',
++      '...OqKkKkKkO.OqKqKkO....',
++      '...OkkkkkkkO.OqKKKkO....',
++      '....OOOOOOO..OqKKKkO....',
++      '............OqKkKkKkO...',
++      '............OkkkkkkkO...',
++    ],
++    [
++      '...........OO...........',
++      '.......O.OOqkOO.........',
++      '.......OOOqKKqkO........',
++      '.......OqOOKKKKkO.......',
++      '......OOOOKKKKOOOO......',
++      '......OqKKKKKKKKkO......',
++      '.....OOWOKKKKOWOKkO.....',
++      '.....OOEEKKKKOEEKkO...O.',
++      '.....OOOOKKKKOOOKkO..OqO',
++      '.O....OqKKKkkKKKkO..OqOq',
++      'OqO...OkTOTOTOTOkO..Oqqk',
++      'qOqO...OOOOOOOOOO...OkKk',
++      'qqkO...OOTOROTOOO....Oqk',
++      'kKkO...OkBkkkkBkO....Oqk',
++      'OqKkOOOOOBOOOOOOOOOO.Oqk',
++      'OqKKzzzzqqqqqqqqzzzsOOqk',
++      'OqKKKKSSKKKKKKKKSSSSqqKk',
++      'OqKKKKSSKKKKKKKKSSSSKKKk',
++      'OqKKKKSSKKKKKKKKSSSSKKKk',
++      'OqKKKKKKKKKKKKbBKKSKkKKk',
++      'OqBKKKKKKKKKKKbKKKskOqBk',
++      'OqKKKKKKKKKKKKKbBKKkOqKk',
++      'OqKKKKkkkkkkKKKbKKKkOkKk',
++      'OkkkKKKKKKKkKKKKbBKkOOkk',
++      '.OOOqKKKKKkOqKKbKKKkO.OO',
++      '...OqKKkkkkkkKKbBKKkO...',
++      '...OqKKKKKKKKKKKKKKkO...',
++      '...OqKKKKKKKKKKKKKKkO...',
++      '...OkKkkkkkkKKKKKKKkO...',
++      '....OqKKKKKKKKKKKKkO....',
++      '....OqKKKKKKKKKKKKkO....',
++      '...OPPKKKKKKKKKKKKPpO...',
++      '...OPPPKKKKKKKKKKPPpO...',
++      '...OPPPPPKKkkKKBBPPpO...',
++      '...OPPPPPPpOOPBBBPppO...',
++      '...OPPPPPPpOOpOpOpOpO...',
++      '...OPPPPPPpO.OqKqKkO....',
++      '...OPpPpPppO.OqKKKkO....',
++      '...OpOpOpOpO.OqKKKkO....',
++      '....OqKqKkO.OqKkKkKkO...',
++      '....OqKKKkO.OkkkkkkkO...',
++      '....OqKKKkO..OOOOOOO....',
++      '...OqKkKkKkO............',
++      '...OkkkkkkkO............',
++    ],
++  ];
++
++  static const List<List<String>> _normal = [
++    [
++      '...OhOhOhOhOhO....',
++      '...OhOhOhOhOhO....',
++      '...OHHHHHHHHHhO...',
++      '...OHHHHHHHHHhO...',
++      '...OHKKKKKKNNO....',
++      '...OHKKKKKKNNkO...',
++      '.O.OHOOEKKOOOkO...',
++      'OqOOqOEOKKOEOkO...',
++      'qOqOqKKKKKKKKkO.O.',
++      'qqkOqKKKkkKBBkOOqO',
++      'kKkOkKKKKKKKKkOqOq',
++      'OqkOOkTOTOTOkOOqqk',
++      'OqkO.OOBOOTOO.OkKk',
++      'OqkOOWWBKKWWwO.Oqk',
++      'OqkOzWWWSSWWWsOOqk',
++      'OkKqSSSWRRWSsszzKk',
++      '.OqKSSSSRRSSssSKKk',
++      '.OqKSSSSRRSSssSKkO',
++      '.OBKSBbbRRSSsssKBO',
++      '.OqKSTTTRRSSssOqkO',
++      '.OssSbbbRRSSssOssO',
++      '..OOzTTTRRSSssOOO.',
++      '...OzbbbRRSBBsO...',
++      '...OzTTTRRSBBsO...',
++      '...OzbbBRRSBBsO...',
++      '...OzSSSRRSBBsO...',
++      '...OzSSSRrSsssO...',
++      '...OzSSSSSSsssO...',
++      '...OzSSSSsSsssO...',
++      '...OPSPPsOPSPpO...',
++      '...OPPPpOOPPPpO...',
++      '...OPpPpOOPPPpO...',
++      '...OpOpO.OPPPpO...',
++      '....OkkO.OPpPpO...',
++      '....OkkO.OpOpO....',
++      '....OkkO..OkkO....',
++      '...ODDDDO.OkkO....',
++      '...ODDDDO.OkkO....',
++      '....OOOO.ODDDDO...',
++      '.........ODDDDO...',
++    ],
++    [
++      '...OhOhOhOhOhO....',
++      '...OhOhOhOhOhO....',
++      '...OHHHHHHHHHhO...',
++      '...OHHHHHHHHHhO...',
++      '...OHKKKKKKNNO....',
++      '...OHKKKKKKNNkO...',
++      '...OHOOEKKOOOkO.O.',
++      '...OqOEOKKOEOkOOqO',
++      '.O.OqKKKKKKKKkOqOq',
++      'OqOOqKKKkkKBBkOqqk',
++      'qOqOkKKKKKKKKkOkKk',
++      'qqkOOkTOTOTOkO.Oqk',
++      'kKkO.OOBOOTOO..Oqk',
++      'OqkOOWWBKKWWwO.Oqk',
++      'OqkOzWWWSSWWWsOOqk',
++      'OqKzSSSWRRWSsszqKk',
++      'OkKKSSSSRRSSssSKkO',
++      '.OqKSSSSRRSSssSKkO',
++      '.OBKSBbbRRSSsssKBO',
++      '.OqKSTTTRRSSssOqkO',
++      '.OssSbbbRRSSssOssO',
++      '..OOzTTTRRSSssOOO.',
++      '...OzbbbRRSBBsO...',
++      '...OzTTTSRRBBsO...',
++      '...OzbbBSRRBBsO...',
++      '...OzSSSSRRBBsO...',
++      '...OzSSSSRrsssO...',
++      '...OzSSSSSSsssO...',
++      '...OzSSSSsSsssO...',
++      '...OPSPPsOPSPpO...',
++      '...OPPPpOOPPPpO...',
++      '...OPBPpOOPpPpO...',
++      '...OPPPpOOpOpO....',
++      '...OPpPpO.OkkO....',
++      '...OpOpO..OkkO....',
++      '....OkkO..OkkO....',
++      '....OkkO.ODDDDO...',
++      '....OkkO.ODDDDO...',
++      '...ODDDDO.OOOO....',
++      '...ODDDDO.........',
++    ],
++  ];
++
++  static const List<List<String>> _fast = [
++    [
++      '.....OOOOOO.....',
++      '....OzzzzzsO....',
++      '...OzSSSSSSsO...',
++      '..OzSSSSSSSSsO..',
++      '.OzSssssssssSsO.',
++      'OqSSOOKKKKOOSsO.',
++      'qOzSOOOKKOOOSsO.',
++      'qqSSOEEKKEEOSSqO',
++      'kKSSKKKKKKKKSsOq',
++      'OqSSKKKkkKKKSSqk',
++      'OzSSKTOTOTOKSsKk',
++      'OzSSKOOOOOOKsOzs',
++      'OzSSSOORROOSsOzs',
++      'OzSSSOTOTOOSsOzs',
++      'OzSSSSSzzSBsSzSs',
++      'OzSSSSSzzSBssSSs',
++      'OzSSSSSzzSssOzSs',
++      'OzSsSbbzzSssOsSs',
++      'OssOzTTWWSssOOss',
++      '.OOOzbbSSSssO.OO',
++      '...OzTTSSSssO...',
++      '...OzSSSSSssO...',
++      '...OzsssssssO...',
++      '...OzSSSSSssO...',
++      '..OPSSSSSSsspO..',
++      '..OPSSSssSsspO..',
++      '..OPPPpOOPPPpO..',
++      '..OPPPpOOPPPpO..',
++      '..OPpPpOOPPPpO..',
++      '..OpOpO.OPPPpO..',
++      '...OqkO.OPpPpO..',
++      '...OqkO.OpOpO...',
++      '..OWDDDO.OqkO...',
++      '..ODDDDO.OqkO...',
++      '...OOOO.ODDDDO..',
++      '........ODDDDO..',
++    ],
++    [
++      '.....OOOOOO.....',
++      '....OzzzzzsO....',
++      '...OzSSSSSSsO...',
++      '..OzSSSSSSSSsO..',
++      '.OzSssssssssSsO.',
++      '.OzSOOKKKKOOSSqO',
++      '.OzSOOOKKOOOSsOq',
++      'OqSSOEEKKEEOSSqk',
++      'qOzSKKKKKKKKSSKk',
++      'qqSSKKKkkKKKSSSs',
++      'kKSSKTOTOTOKSsSs',
++      'OqSSKOOOOOOKsOzs',
++      'OzSSSOORROOSsOzs',
++      'OzSSSOTOTOOSsOzs',
++      'OzSSSSSzzSBsSzSs',
++      'OzSSSSSzzSBssSSs',
++      'OzSSSSSzzSssOzSs',
++      'OzSsSbbzzSssOsSs',
++      'OssOzTTWWSssOOss',
++      '.OOOzbbSSSssO.OO',
++      '...OzTTSSSssO...',
++      '...OzSSSSSssO...',
++      '...OzsssssssO...',
++      '...OzSSSSSssO...',
++      '..OPSSSSSSsspO..',
++      '..OPSSSssSsspO..',
++      '..OPPPpOOPPPpO..',
++      '..OPPPpOOPPPpO..',
++      '..OPPPpOOPpPpO..',
++      '..OPPPpOOpOpO...',
++      '..OPpPpO.OqkO...',
++      '..OpOpO..OqkO...',
++      '...OqkO.ODDDDO..',
++      '...OqkO.ODDDDO..',
++      '..OWDDDO.OOOO...',
++      '..ODDDDO........',
++    ],
++  ];
++
++  /// Zombis de espaldas de la horda: `back[estilo][variante][cuadro]`.
++  /// Estilos: 0 camiseta, 1 campera (una mano colgando), 2 capucha, 3 torso al
++  /// aire con columna y costillas. Las variantes cambian el peinado (pelo
++  /// largo, corto o calvo) y la posición del desgarro de la espalda.
++  static final List<List<List<PixelSprite>>> back = [
++    [
++      [
++        PixelSprite(_back0),
++        PixelSprite(_back1),
++      ],
++      [
++        PixelSprite(_back2),
++        PixelSprite(_back3),
++      ],
++      [
++        PixelSprite(_back4),
++        PixelSprite(_back5),
++      ],
++    ],
++    [
++      [
++        PixelSprite(_back6),
++        PixelSprite(_back7),
++      ],
++      [
++        PixelSprite(_back8),
++        PixelSprite(_back9),
++      ],
++      [
++        PixelSprite(_back10),
++        PixelSprite(_back11),
++      ],
++    ],
++    [
++      [
++        PixelSprite(_back12),
++        PixelSprite(_back13),
++      ],
++    ],
++    [
++      [
++        PixelSprite(_back14),
++        PixelSprite(_back15),
++      ],
++      [
++        PixelSprite(_back16),
++        PixelSprite(_back17),
++      ],
++      [
++        PixelSprite(_back18),
++        PixelSprite(_back19),
++      ],
++    ],
++  ];
++
++  static const List<String> _back0 = [
++    '....................',
++    '....................',
++    '.........OO.........',
++    '.......OOHHOO.......',
++    '......OHHhHHHO......',
++    '.O...OhHHHHkHhO.....',
++    'OqO.OHHHHHhHkHHO....',
++    'qOqOOHHhHHHHHHhO..O.',
++    'qqkOhHkHHHHhHHHHOOqO',
++    'kKkOHHHHhHHHHHHhOqOq',
++    'OqkOkhHHHHHHhHHkOqqk',
++    'OqkOHHHHHhHHHHHHOkKk',
++    'OqkOHHhHHHHHHhHHOOqk',
++    'OqkOOHHHHHhHHHHO.Oqk',
++    'OqkOOHHhHHHHHHhO.Oqk',
++    'OqkOzzzHKKKKHzzsOOqk',
++    'OqKqKSSSSSSSSSSSqqKk',
++    'OqKKKSSsSSSSsSSSkKKk',
++    'OqKKSSSbkkBSSSSsOqKk',
++    'OqKkSSSbkkbSSSSsOkKk',
++    'OkkOzSSbTkbSsSSsOOkk',
++    '.OOOsSSbkTbSSSSsO.OO',
++    '....OzSBkkbSSSsO....',
++    '....OzSsSSSSsSsO....',
++    '....OzSSSSSBBBsO....',
++    '....OzSSSSSBBBsO....',
++    '....OzSsSSSSsSsO....',
++    '....OzSSSSSSSSsO....',
++    '....OzSSSssSSSsO....',
++    '....OPSPpSOPSPpO....',
++    '....OPpPpOOPPPpO....',
++    '....OpOpO.OPPPpO....',
++    '.....OkkO.OPpPpO....',
++    '.....OkkO.OpOpO.....',
++    '....ODDDDO.OkkO.....',
++    '....ODDDDO.OkkO.....',
++    '.....OOOO.ODDDDO....',
++    '..........ODDDDO....',
++  ];
++
++  static const List<String> _back1 = [
++    '....................',
++    '....................',
++    '.........OO.........',
++    '.......OOHHOO.......',
++    '......OHHhHHHO......',
++    '.....OhHHHHkHhO...O.',
++    '....OHHHHHhHkHHO.OqO',
++    '.O..OHHhHHHHHHhOOqOq',
++    'OqOOhHkHHHHhHHHHOqqk',
++    'qOqOHHHHhHHHHHHhOkKk',
++    'qqkOkhHHHHHHhHHkOOqk',
++    'kKkOHHHHHhHHHHHHOOqk',
++    'OqkOHHhHHHHHHhHHOOqk',
++    'OqkOOHHHHHhHHHHO.Oqk',
++    'OqkOOHHhHHHHHHhO.Oqk',
++    'OqkOzzzHKKKKHzzsOOqk',
++    'OqKqKSSSSSSSSSSSqqKk',
++    'OqKKKSSsSSSSsSSSkKKk',
++    'OqKKSSSbkkBSSSSsOqKk',
++    'OqKkSSSbkkbSSSSsOkKk',
++    'OkkOzSSbTkbSsSSsOOkk',
++    '.OOOsSSbkTbSSSSsO.OO',
++    '....OzSBkkbSSSsO....',
++    '....OzSsSSSSsSsO....',
++    '....OzSSSSSBBBsO....',
++    '....OzSSSSSBBBsO....',
++    '....OzSsSSSSsSsO....',
++    '....OzSSSSSSSSsO....',
++    '....OzSSSssSSSsO....',
++    '....OPSPpSOPSPpO....',
++    '....OPPPpOOPpPpO....',
++    '....OPPPpOOpOpO.....',
++    '....OPpPpO.OkkO.....',
++    '....OpOpO..OkkO.....',
++    '.....OkkO.ODDDDO....',
++    '.....OkkO.ODDDDO....',
++    '....ODDDDO.OOOO.....',
++    '....ODDDDO..........',
++  ];
++
++  static const List<String> _back2 = [
++    '....................',
++    '....................',
++    '.........OO.........',
++    '.......OOHHOO.......',
++    '......OHHhHHHO......',
++    '.O...OhHHHHkHhO.....',
++    'OqO.OHHHHHhHkHHO....',
++    'qOqOOHHhHHHHHHhO..O.',
++    'qqkOhHkHHHHhHHHHOOqO',
++    'kKkOHHHHhHHHHHHhOqOq',
++    'OqkOkhHHHHHHhHHkOqqk',
++    'OqkOHHHHHhHHHHHHOkKk',
++    'OqkOHHhHHHHHHhHHOOqk',
++    'OqkOOOkHHHhHHkOO.Oqk',
++    'OqkOOOOqKHHKkOOO.Oqk',
++    'OqkOzzzSKKKKSzzsOOqk',
++    'OqKqKSSSSSSSSSSSqqKk',
++    'OqKKKSSsSSSSsSSSkKKk',
++    'OqKKSSSSbkkBSSSsOqKk',
++    'OqKkSSSSbkkbSSSsOkKk',
++    'OkkOzSSsbTkbsSSsOOkk',
++    '.OOOsSSSbkTbSSSsO.OO',
++    '....OzSSBkkbSSsO....',
++    '....OzSsSSSSsSsO....',
++    '....OzSSSSSBBBsO....',
++    '....OzSSSSSBBBsO....',
++    '....OzSsSSSSsSsO....',
++    '....OzSSSSSSSSsO....',
++    '....OzSSSssSSSsO....',
++    '....OPSPpSOPSPpO....',
++    '....OPpPpOOPPPpO....',
++    '....OpOpO.OPPPpO....',
++    '.....OkkO.OPpPpO....',
++    '.....OkkO.OpOpO.....',
++    '....ODDDDO.OkkO.....',
++    '....ODDDDO.OkkO.....',
++    '.....OOOO.ODDDDO....',
++    '..........ODDDDO....',
++  ];
++
++  static const List<String> _back3 = [
++    '....................',
++    '....................',
++    '.........OO.........',
++    '.......OOHHOO.......',
++    '......OHHhHHHO......',
++    '.....OhHHHHkHhO...O.',
++    '....OHHHHHhHkHHO.OqO',
++    '.O..OHHhHHHHHHhOOqOq',
++    'OqOOhHkHHHHhHHHHOqqk',
++    'qOqOHHHHhHHHHHHhOkKk',
++    'qqkOkhHHHHHHhHHkOOqk',
++    'kKkOHHHHHhHHHHHHOOqk',
++    'OqkOHHhHHHHHHhHHOOqk',
++    'OqkOOOkHHHhHHkOO.Oqk',
++    'OqkOOOOqKHHKkOOO.Oqk',
++    'OqkOzzzSKKKKSzzsOOqk',
++    'OqKqKSSSSSSSSSSSqqKk',
++    'OqKKKSSsSSSSsSSSkKKk',
++    'OqKKSSSSbkkBSSSsOqKk',
++    'OqKkSSSSbkkbSSSsOkKk',
++    'OkkOzSSsbTkbsSSsOOkk',
++    '.OOOsSSSbkTbSSSsO.OO',
++    '....OzSSBkkbSSsO....',
++    '....OzSsSSSSsSsO....',
++    '....OzSSSSSBBBsO....',
++    '....OzSSSSSBBBsO....',
++    '....OzSsSSSSsSsO....',
++    '....OzSSSSSSSSsO....',
++    '....OzSSSssSSSsO....',
++    '....OPSPpSOPSPpO....',
++    '....OPPPpOOPpPpO....',
++    '....OPPPpOOpOpO.....',
++    '....OPpPpO.OkkO.....',
++    '....OpOpO..OkkO.....',
++    '.....OkkO.ODDDDO....',
++    '.....OkkO.ODDDDO....',
++    '....ODDDDO.OOOO.....',
++    '....ODDDDO..........',
++  ];
++
++  static const List<String> _back4 = [
++    '....................',
++    '....................',
++    '....................',
++    '.......OOOOOO.......',
++    '......OqqqqqkO......',
++    '.O...OqKBKKKKkO.....',
++    'OqO..OqKKBKBKkO.....',
++    'qOqOOqKKKKBKKKkO..O.',
++    'qqkOOqKKKKKKKKkO.OqO',
++    'kKkOOqKKKKKKKKkOOqOq',
++    'OqkOkqKKKKKKKKkkOqqk',
++    'OqkOOkKKKKKKKKkOOkKk',
++    'OqkO.OqKKKKKKkO..Oqk',
++    'OqkO.OkKKKKKKkO..Oqk',
++    'OqkOOOOqKKKKkOOO.Oqk',
++    'OqkOzzzSKKKKSzzsOOqk',
++    'OqKqKSSSSSSSSSSSqqKk',
++    'OqKKKSSsSSSSsSSSkKKk',
++    'OqKKSSSbkkBSSSSsOqKk',
++    'OqKkSSSbkkbSSSSsOkKk',
++    'OkkOzSSbTkbSsSSsOOkk',
++    '.OOOsSSbkTbSSSSsO.OO',
++    '....OzSBkkbSSSsO....',
++    '....OzSsSSSSsSsO....',
++    '....OzSSSSSBBBsO....',
++    '....OzSSSSSBBBsO....',
++    '....OzSsSSSSsSsO....',
++    '....OzSSSSSSSSsO....',
++    '....OzSSSssSSSsO....',
++    '....OPSPpSOPSPpO....',
++    '....OPpPpOOPPPpO....',
++    '....OpOpO.OPPPpO....',
++    '.....OkkO.OPpPpO....',
++    '.....OkkO.OpOpO.....',
++    '....ODDDDO.OkkO.....',
++    '....ODDDDO.OkkO.....',
++    '.....OOOO.ODDDDO....',
++    '..........ODDDDO....',
++  ];
++
++  static const List<String> _back5 = [
++    '....................',
++    '....................',
++    '....................',
++    '.......OOOOOO.......',
++    '......OqqqqqkO......',
++    '.....OqKBKKKKkO...O.',
++    '.....OqKKBKBKkO..OqO',
++    '.O..OqKKKKBKKKkOOqOq',
++    'OqO.OqKKKKKKKKkOOqqk',
++    'qOqOOqKKKKKKKKkOOkKk',
++    'qqkOkqKKKKKKKKkk.Oqk',
++    'kKkOOkKKKKKKKKkO.Oqk',
++    'OqkO.OqKKKKKKkO..Oqk',
++    'OqkO.OkKKKKKKkO..Oqk',
++    'OqkOOOOqKKKKkOOO.Oqk',
++    'OqkOzzzSKKKKSzzsOOqk',
++    'OqKqKSSSSSSSSSSSqqKk',
++    'OqKKKSSsSSSSsSSSkKKk',
++    'OqKKSSSbkkBSSSSsOqKk',
++    'OqKkSSSbkkbSSSSsOkKk',
++    'OkkOzSSbTkbSsSSsOOkk',
++    '.OOOsSSbkTbSSSSsO.OO',
++    '....OzSBkkbSSSsO....',
++    '....OzSsSSSSsSsO....',
++    '....OzSSSSSBBBsO....',
++    '....OzSSSSSBBBsO....',
++    '....OzSsSSSSsSsO....',
++    '....OzSSSSSSSSsO....',
++    '....OzSSSssSSSsO....',
++    '....OPSPpSOPSPpO....',
++    '....OPPPpOOPpPpO....',
++    '....OPPPpOOpOpO.....',
++    '....OPpPpO.OkkO.....',
++    '....OpOpO..OkkO.....',
++    '.....OkkO.ODDDDO....',
++    '.....OkkO.ODDDDO....',
++    '....ODDDDO.OOOO.....',
++    '....ODDDDO..........',
++  ];
++
++  static const List<String> _back6 = [
++    '....................',
++    '....................',
++    '.........OO.........',
++    '.......OOHHOO.......',
++    '......OHHhHHHO......',
++    '.O...OhHHHHkHhO.....',
++    'OqO.OHHHHHhHkHHO....',
++    'qOqOOHHhHHHHHHhO....',
++    'qqkOhHkHHHHhHHHHO...',
++    'kKkOHHHHhHHHHHHhO...',
++    'OqkOkhHHHHHHhHHkO...',
++    'OqkOHHHHHhHHHHHHO...',
++    'OqkOHHhHHHHHHhHHO...',
++    'OqkOOHHHHHhHHHHO....',
++    'OqkOOHHhHHHHHHhO....',
++    'OqkOzzzHKKKKHzzsOO..',
++    'OqKzSSSSSSSSSSSSzsO.',
++    'OqKSSSSsSSSSsSSSSsO.',
++    'OqKSSSSbkkBSSSSSsSsO',
++    'OqKsSSSbkkbSSSSsOsSs',
++    'OssOzSSbTkbSsSSsOOqk',
++    '.OOOsSSbkTbSSSSsOOqk',
++    '....OzSBkkbSSSsO.Oqk',
++    '....OzSsSSSSsSsO.Oqk',
++    '....OzSSSSSBBBsO.Oqk',
++    '....OzSSSSSBBBsO.Oqk',
++    '....OzSsSSSSsSsO.Oqk',
++    '....OzSSSSSSSSsO.Oqk',
++    '....OzSSSssSSSsO.Oqk',
++    '....OPSPpSOPSPpOOqKk',
++    '....OPpPpOOPPPpOOkkk',
++    '....OpOpO.OPPPpO.OOO',
++    '.....OkkO.OPpPpO....',
++    '.....OkkO.OpOpO.....',
++    '....ODDDDO.OkkO.....',
++    '....ODDDDO.OkkO.....',
++    '.....OOOO.ODDDDO....',
++    '..........ODDDDO....',
++  ];
++
++  static const List<String> _back7 = [
++    '....................',
++    '....................',
++    '.........OO.........',
++    '.......OOHHOO.......',
++    '......OHHhHHHO......',
++    '.....OhHHHHkHhO.....',
++    '....OHHHHHhHkHHO....',
++    '.O..OHHhHHHHHHhO....',
++    'OqOOhHkHHHHhHHHHO...',
++    'qOqOHHHHhHHHHHHhO...',
++    'qqkOkhHHHHHHhHHkO...',
++    'kKkOHHHHHhHHHHHHO...',
++    'OqkOHHhHHHHHHhHHO...',
++    'OqkOOHHHHHhHHHHO....',
++    'OqkOOHHhHHHHHHhO....',
++    'OqkOzzzHKKKKHzzsOO..',
++    'OqKzSSSSSSSSSSSSzsO.',
++    'OqKSSSSsSSSSsSSSSsO.',
++    'OqKSSSSbkkBSSSSSsSsO',
++    'OqKsSSSbkkbSSSSsOsSs',
++    'OssOzSSbTkbSsSSsOOqk',
++    '.OOOsSSbkTbSSSSsOOqk',
++    '....OzSBkkbSSSsO.Oqk',
++    '....OzSsSSSSsSsO.Oqk',
++    '....OzSSSSSBBBsO.Oqk',
++    '....OzSSSSSBBBsO.Oqk',
++    '....OzSsSSSSsSsO.Oqk',
++    '....OzSSSSSSSSsO.Oqk',
++    '....OzSSSssSSSsOOqKk',
++    '....OPSPpSOPSPpOOkkk',
++    '....OPPPpOOPpPpO.OOO',
++    '....OPPPpOOpOpO.....',
++    '....OPpPpO.OkkO.....',
++    '....OpOpO..OkkO.....',
++    '.....OkkO.ODDDDO....',
++    '.....OkkO.ODDDDO....',
++    '....ODDDDO.OOOO.....',
++    '....ODDDDO..........',
++  ];
++
++  static const List<String> _back8 = [
++    '....................',
++    '....................',
++    '.........OO.........',
++    '.......OOHHOO.......',
++    '......OHHhHHHO......',
++    '.O...OhHHHHkHhO.....',
++    'OqO.OHHHHHhHkHHO....',
++    'qOqOOHHhHHHHHHhO....',
++    'qqkOhHkHHHHhHHHHO...',
++    'kKkOHHHHhHHHHHHhO...',
++    'OqkOkhHHHHHHhHHkO...',
++    'OqkOHHHHHhHHHHHHO...',
++    'OqkOHHhHHHHHHhHHO...',
++    'OqkOOOkHHHhHHkOO....',
++    'OqkOOOOqKHHKkOOO....',
++    'OqkOzzzSKKKKSzzsOO..',
++    'OqKzSSSSSSSSSSSSzsO.',
++    'OqKSSSSsSSSSsSSSSsO.',
++    'OqKSSSSSbkkBSSSSsSsO',
++    'OqKsSSSSbkkbSSSsOsSs',
++    'OssOzSSsbTkbsSSsOOqk',
++    '.OOOsSSSbkTbSSSsOOqk',
++    '....OzSSBkkbSSsO.Oqk',
++    '....OzSsSSSSsSsO.Oqk',
++    '....OzSSSSSBBBsO.Oqk',
++    '....OzSSSSSBBBsO.Oqk',
++    '....OzSsSSSSsSsO.Oqk',
++    '....OzSSSSSSSSsO.Oqk',
++    '....OzSSSssSSSsO.Oqk',
++    '....OPSPpSOPSPpOOqKk',
++    '....OPpPpOOPPPpOOkkk',
++    '....OpOpO.OPPPpO.OOO',
++    '.....OkkO.OPpPpO....',
++    '.....OkkO.OpOpO.....',
++    '....ODDDDO.OkkO.....',
++    '....ODDDDO.OkkO.....',
++    '.....OOOO.ODDDDO....',
++    '..........ODDDDO....',
++  ];
++
++  static const List<String> _back9 = [
++    '....................',
++    '....................',
++    '.........OO.........',
++    '.......OOHHOO.......',
++    '......OHHhHHHO......',
++    '.....OhHHHHkHhO.....',
++    '....OHHHHHhHkHHO....',
++    '.O..OHHhHHHHHHhO....',
++    'OqOOhHkHHHHhHHHHO...',
++    'qOqOHHHHhHHHHHHhO...',
++    'qqkOkhHHHHHHhHHkO...',
++    'kKkOHHHHHhHHHHHHO...',
++    'OqkOHHhHHHHHHhHHO...',
++    'OqkOOOkHHHhHHkOO....',
++    'OqkOOOOqKHHKkOOO....',
++    'OqkOzzzSKKKKSzzsOO..',
++    'OqKzSSSSSSSSSSSSzsO.',
++    'OqKSSSSsSSSSsSSSSsO.',
++    'OqKSSSSSbkkBSSSSsSsO',
++    'OqKsSSSSbkkbSSSsOsSs',
++    'OssOzSSsbTkbsSSsOOqk',
++    '.OOOsSSSbkTbSSSsOOqk',
++    '....OzSSBkkbSSsO.Oqk',
++    '....OzSsSSSSsSsO.Oqk',
++    '....OzSSSSSBBBsO.Oqk',
++    '....OzSSSSSBBBsO.Oqk',
++    '....OzSsSSSSsSsO.Oqk',
++    '....OzSSSSSSSSsO.Oqk',
++    '....OzSSSssSSSsOOqKk',
++    '....OPSPpSOPSPpOOkkk',
++    '....OPPPpOOPpPpO.OOO',
++    '....OPPPpOOpOpO.....',
++    '....OPpPpO.OkkO.....',
++    '....OpOpO..OkkO.....',
++    '.....OkkO.ODDDDO....',
++    '.....OkkO.ODDDDO....',
++    '....ODDDDO.OOOO.....',
++    '....ODDDDO..........',
++  ];
++
++  static const List<String> _back10 = [
++    '....................',
++    '....................',
++    '....................',
++    '.......OOOOOO.......',
++    '......OqqqqqkO......',
++    '.O...OqKBKKKKkO.....',
++    'OqO..OqKKBKBKkO.....',
++    'qOqOOqKKKKBKKKkO....',
++    'qqkOOqKKKKKKKKkO....',
++    'kKkOOqKKKKKKKKkO....',
++    'OqkOkqKKKKKKKKkk....',
++    'OqkOOkKKKKKKKKkO....',
++    'OqkO.OqKKKKKKkO.....',
++    'OqkO.OkKKKKKKkO.....',
++    'OqkOOOOqKKKKkOOO....',
++    'OqkOzzzSKKKKSzzsOO..',
++    'OqKzSSSSSSSSSSSSzsO.',
++    'OqKSSSSsSSSSsSSSSsO.',
++    'OqKSSSSbkkBSSSSSsSsO',
++    'OqKsSSSbkkbSSSSsOsSs',
++    'OssOzSSbTkbSsSSsOOqk',
++    '.OOOsSSbkTbSSSSsOOqk',
++    '....OzSBkkbSSSsO.Oqk',
++    '....OzSsSSSSsSsO.Oqk',
++    '....OzSSSSSBBBsO.Oqk',
++    '....OzSSSSSBBBsO.Oqk',
++    '....OzSsSSSSsSsO.Oqk',
++    '....OzSSSSSSSSsO.Oqk',
++    '....OzSSSssSSSsO.Oqk',
++    '....OPSPpSOPSPpOOqKk',
++    '....OPpPpOOPPPpOOkkk',
++    '....OpOpO.OPPPpO.OOO',
++    '.....OkkO.OPpPpO....',
++    '.....OkkO.OpOpO.....',
++    '....ODDDDO.OkkO.....',
++    '....ODDDDO.OkkO.....',
++    '.....OOOO.ODDDDO....',
++    '..........ODDDDO....',
++  ];
++
++  static const List<String> _back11 = [
++    '....................',
++    '....................',
++    '....................',
++    '.......OOOOOO.......',
++    '......OqqqqqkO......',
++    '.....OqKBKKKKkO.....',
++    '.....OqKKBKBKkO.....',
++    '.O..OqKKKKBKKKkO....',
++    'OqO.OqKKKKKKKKkO....',
++    'qOqOOqKKKKKKKKkO....',
++    'qqkOkqKKKKKKKKkk....',
++    'kKkOOkKKKKKKKKkO....',
++    'OqkO.OqKKKKKKkO.....',
++    'OqkO.OkKKKKKKkO.....',
++    'OqkOOOOqKKKKkOOO....',
++    'OqkOzzzSKKKKSzzsOO..',
++    'OqKzSSSSSSSSSSSSzsO.',
++    'OqKSSSSsSSSSsSSSSsO.',
++    'OqKSSSSbkkBSSSSSsSsO',
++    'OqKsSSSbkkbSSSSsOsSs',
++    'OssOzSSbTkbSsSSsOOqk',
++    '.OOOsSSbkTbSSSSsOOqk',
++    '....OzSBkkbSSSsO.Oqk',
++    '....OzSsSSSSsSsO.Oqk',
++    '....OzSSSSSBBBsO.Oqk',
++    '....OzSSSSSBBBsO.Oqk',
++    '....OzSsSSSSsSsO.Oqk',
++    '....OzSSSSSSSSsO.Oqk',
++    '....OzSSSssSSSsOOqKk',
++    '....OPSPpSOPSPpOOkkk',
++    '....OPPPpOOPpPpO.OOO',
++    '....OPPPpOOpOpO.....',
++    '....OPpPpO.OkkO.....',
++    '....OpOpO..OkkO.....',
++    '.....OkkO.ODDDDO....',
++    '.....OkkO.ODDDDO....',
++    '....ODDDDO.OOOO.....',
++    '....ODDDDO..........',
++  ];
++
++  static const List<String> _back12 = [
++    '....................',
++    '....................',
++    '.........OO.........',
++    '.......OOzzOO.......',
++    '......OzzzzzsO......',
++    '.O...OzSSzzSSsO.....',
++    'OqO.OzSSSzzSSSsO....',
++    'qOqOOzSSSzzSSSsO..O.',
++    'qqkOzSSSSzzSSSSsOOqO',
++    'kKkOzSSSSzzSSSSsOqOq',
++    'OqkOsSSSSzzSSSSsOqqk',
++    'OqkOOzSSSzzSSSsOOkKk',
++    'OqkOOsSSSzzSSSsO.Oqk',
++    'OqkO.OsSSzzSSsO..Oqk',
++    'OqkOOOOzSSSSsOOO.Oqk',
++    'OqkOzzzSSSSSSzzsOOqk',
++    'OqKzSSSSSSSSSSSSzzKk',
++    'OqKSSSSsSSSSsSSSsSKk',
++    'OqKSSSSSbkkBSSSsOzKk',
++    'OqKsSSSSbkkbSSSsOsKk',
++    'OssOzSSsbTkbsSSsOOss',
++    '.OOOsSSSbkTbSSSsO.OO',
++    '....OzSSBkkbSSsO....',
++    '....OzSsSSSSsSsO....',
++    '....OzSSSSSBBBsO....',
++    '....OzSSSSSBBBsO....',
++    '....OzSsSSSSsSsO....',
++    '....OzSSSSSSSSsO....',
++    '....OzSSSssSSSsO....',
++    '....OPSPpSOPSPpO....',
++    '....OPpPpOOPPPpO....',
++    '....OpOpO.OPPPpO....',
++    '.....OkkO.OPpPpO....',
++    '.....OkkO.OpOpO.....',
++    '....ODDDDO.OkkO.....',
++    '....ODDDDO.OkkO.....',
++    '.....OOOO.ODDDDO....',
++    '..........ODDDDO....',
++  ];
++
++  static const List<String> _back13 = [
++    '....................',
++    '....................',
++    '.........OO.........',
++    '.......OOzzOO.......',
++    '......OzzzzzsO......',
++    '.....OzSSzzSSsO...O.',
++    '....OzSSSzzSSSsO.OqO',
++    '.O..OzSSSzzSSSsOOqOq',
++    'OqOOzSSSSzzSSSSsOqqk',
++    'qOqOzSSSSzzSSSSsOkKk',
++    'qqkOsSSSSzzSSSSsOOqk',
++    'kKkOOzSSSzzSSSsO.Oqk',
++    'OqkOOsSSSzzSSSsO.Oqk',
++    'OqkO.OsSSzzSSsO..Oqk',
++    'OqkOOOOzSSSSsOOO.Oqk',
++    'OqkOzzzSSSSSSzzsOOqk',
++    'OqKzSSSSSSSSSSSSzzKk',
++    'OqKSSSSsSSSSsSSSsSKk',
++    'OqKSSSSSbkkBSSSsOzKk',
++    'OqKsSSSSbkkbSSSsOsKk',
++    'OssOzSSsbTkbsSSsOOss',
++    '.OOOsSSSbkTbSSSsO.OO',
++    '....OzSSBkkbSSsO....',
++    '....OzSsSSSSsSsO....',
++    '....OzSSSSSBBBsO....',
++    '....OzSSSSSBBBsO....',
++    '....OzSsSSSSsSsO....',
++    '....OzSSSSSSSSsO....',
++    '....OzSSSssSSSsO....',
++    '....OPSPpSOPSPpO....',
++    '....OPPPpOOPpPpO....',
++    '....OPPPpOOpOpO.....',
++    '....OPpPpO.OkkO.....',
++    '....OpOpO..OkkO.....',
++    '.....OkkO.ODDDDO....',
++    '.....OkkO.ODDDDO....',
++    '....ODDDDO.OOOO.....',
++    '....ODDDDO..........',
++  ];
++
++  static const List<String> _back14 = [
++    '....................',
++    '....................',
++    '.........OO.........',
++    '.......OOHHOO.......',
++    '......OHHhHHHO......',
++    '.O...OhHHHHkHhO.....',
++    'OqO.OHHHHHhHkHHO....',
++    'qOqOOHHhHHHHHHhO..O.',
++    'qqkOhHkHHHHhHHHHOOqO',
++    'kKkOHHHHhHHHHHHhOqOq',
++    'OqkOkhHHHHHHhHHkOqqk',
++    'OqkOHHHHHhHHHHHHOkKk',
++    'OqkOHHhHHHHHHhHHOOqk',
++    'OqkOOHHHHHhHHHHO.Oqk',
++    'OqkOOHHhHHHHHHhO.Oqk',
++    'OqkOqqqHKKKKHqqkOOqk',
++    'OqKqKKKKKKkKKKKKqqKk',
++    'OqKKKKKKKkKKKKKKkKKk',
++    'OqKKKKkkkKkkkkKkOqKk',
++    'OqKkKKKKKkKKKKKkOkKk',
++    'OkkOqKkkkKkkkkKkOOkk',
++    '.OOOkKKKKkKKKKKkO.OO',
++    '....OqkkkKkkkkkO....',
++    '....OqKKKkKKKKkO....',
++    '....OqkkkKkkkkkO....',
++    '....OqKKKkKKKKkO....',
++    '....OPPPPPPPPppO....',
++    '....OPPPPPPPPppO....',
++    '....OPPPPPPPPppO....',
++    '....OPPPpOOPPPpO....',
++    '....OPpPpOOPPPpO....',
++    '....OpOpO.OPPPpO....',
++    '.....OkkO.OPpPpO....',
++    '.....OkkO.OpOpO.....',
++    '....ODDDDO.OkkO.....',
++    '....ODDDDO.OkkO.....',
++    '.....OOOO.ODDDDO....',
++    '..........ODDDDO....',
++  ];
++
++  static const List<String> _back15 = [
++    '....................',
++    '....................',
++    '.........OO.........',
++    '.......OOHHOO.......',
++    '......OHHhHHHO......',
++    '.....OhHHHHkHhO...O.',
++    '....OHHHHHhHkHHO.OqO',
++    '.O..OHHhHHHHHHhOOqOq',
++    'OqOOhHkHHHHhHHHHOqqk',
++    'qOqOHHHHhHHHHHHhOkKk',
++    'qqkOkhHHHHHHhHHkOOqk',
++    'kKkOHHHHHhHHHHHHOOqk',
++    'OqkOHHhHHHHHHhHHOOqk',
++    'OqkOOHHHHHhHHHHO.Oqk',
++    'OqkOOHHhHHHHHHhO.Oqk',
++    'OqkOqqqHKKKKHqqkOOqk',
++    'OqKqKKKKKKkKKKKKqqKk',
++    'OqKKKKKKKkKKKKKKkKKk',
++    'OqKKKKkkkKkkkkKkOqKk',
++    'OqKkKKKKKkKKKKKkOkKk',
++    'OkkOqKkkkKkkkkKkOOkk',
++    '.OOOkKKKKkKKKKKkO.OO',
++    '....OqkkkKkkkkkO....',
++    '....OqKKKkKKKKkO....',
++    '....OqkkkKkkkkkO....',
++    '....OqKKKkKKKKkO....',
++    '....OPPPPPPPPppO....',
++    '....OPPPPPPPPppO....',
++    '....OPPPPPPPPppO....',
++    '....OPPPpOOPPPpO....',
++    '....OPPPpOOPpPpO....',
++    '....OPPPpOOpOpO.....',
++    '....OPpPpO.OkkO.....',
++    '....OpOpO..OkkO.....',
++    '.....OkkO.ODDDDO....',
++    '.....OkkO.ODDDDO....',
++    '....ODDDDO.OOOO.....',
++    '....ODDDDO..........',
++  ];
++
++  static const List<String> _back16 = [
++    '....................',
++    '....................',
++    '.........OO.........',
++    '.......OOHHOO.......',
++    '......OHHhHHHO......',
++    '.O...OhHHHHkHhO.....',
++    'OqO.OHHHHHhHkHHO....',
++    'qOqOOHHhHHHHHHhO..O.',
++    'qqkOhHkHHHHhHHHHOOqO',
++    'kKkOHHHHhHHHHHHhOqOq',
++    'OqkOkhHHHHHHhHHkOqqk',
++    'OqkOHHHHHhHHHHHHOkKk',
++    'OqkOHHhHHHHHHhHHOOqk',
++    'OqkOOOkHHHhHHkOO.Oqk',
++    'OqkOOOOqKHHKkOOO.Oqk',
++    'OqkOqqqKKKKKKqqkOOqk',
++    'OqKqKKKKKKkKKKKKqqKk',
++    'OqKKKKKKKkKKKKKKkKKk',
++    'OqKKKKkkkKkkkkKkOqKk',
++    'OqKkKKKKKkKKKKKkOkKk',
++    'OkkOqKkkkKkkkkKkOOkk',
++    '.OOOkKKKKkKKKKKkO.OO',
++    '....OqkkkKkkkkkO....',
++    '....OqKKKkKKKKkO....',
++    '....OqkkkKkkkkkO....',
++    '....OqKKKkKKKKkO....',
++    '....OPPPPPPPPppO....',
++    '....OPPPPPPPPppO....',
++    '....OPPPPPPPPppO....',
++    '....OPPPpOOPPPpO....',
++    '....OPpPpOOPPPpO....',
++    '....OpOpO.OPPPpO....',
++    '.....OkkO.OPpPpO....',
++    '.....OkkO.OpOpO.....',
++    '....ODDDDO.OkkO.....',
++    '....ODDDDO.OkkO.....',
++    '.....OOOO.ODDDDO....',
++    '..........ODDDDO....',
++  ];
++
++  static const List<String> _back17 = [
++    '....................',
++    '....................',
++    '.........OO.........',
++    '.......OOHHOO.......',
++    '......OHHhHHHO......',
++    '.....OhHHHHkHhO...O.',
++    '....OHHHHHhHkHHO.OqO',
++    '.O..OHHhHHHHHHhOOqOq',
++    'OqOOhHkHHHHhHHHHOqqk',
++    'qOqOHHHHhHHHHHHhOkKk',
++    'qqkOkhHHHHHHhHHkOOqk',
++    'kKkOHHHHHhHHHHHHOOqk',
++    'OqkOHHhHHHHHHhHHOOqk',
++    'OqkOOOkHHHhHHkOO.Oqk',
++    'OqkOOOOqKHHKkOOO.Oqk',
++    'OqkOqqqKKKKKKqqkOOqk',
++    'OqKqKKKKKKkKKKKKqqKk',
++    'OqKKKKKKKkKKKKKKkKKk',
++    'OqKKKKkkkKkkkkKkOqKk',
++    'OqKkKKKKKkKKKKKkOkKk',
++    'OkkOqKkkkKkkkkKkOOkk',
++    '.OOOkKKKKkKKKKKkO.OO',
++    '....OqkkkKkkkkkO....',
++    '....OqKKKkKKKKkO....',
++    '....OqkkkKkkkkkO....',
++    '....OqKKKkKKKKkO....',
++    '....OPPPPPPPPppO....',
++    '....OPPPPPPPPppO....',
++    '....OPPPPPPPPppO....',
++    '....OPPPpOOPPPpO....',
++    '....OPPPpOOPpPpO....',
++    '....OPPPpOOpOpO.....',
++    '....OPpPpO.OkkO.....',
++    '....OpOpO..OkkO.....',
++    '.....OkkO.ODDDDO....',
++    '.....OkkO.ODDDDO....',
++    '....ODDDDO.OOOO.....',
++    '....ODDDDO..........',
++  ];
++
++  static const List<String> _back18 = [
++    '....................',
++    '....................',
++    '....................',
++    '.......OOOOOO.......',
++    '......OqqqqqkO......',
++    '.O...OqKBKKKKkO.....',
++    'OqO..OqKKBKBKkO.....',
++    'qOqOOqKKKKBKKKkO..O.',
++    'qqkOOqKKKKKKKKkO.OqO',
++    'kKkOOqKKKKKKKKkOOqOq',
++    'OqkOkqKKKKKKKKkkOqqk',
++    'OqkOOkKKKKKKKKkOOkKk',
++    'OqkO.OqKKKKKKkO..Oqk',
++    'OqkO.OkKKKKKKkO..Oqk',
++    'OqkOOOOqKKKKkOOO.Oqk',
++    'OqkOqqqKKKKKKqqkOOqk',
++    'OqKqKKKKKKkKKKKKqqKk',
++    'OqKKKKKKKkKKKKKKkKKk',
++    'OqKKKKkkkKkkkkKkOqKk',
++    'OqKkKKKKKkKKKKKkOkKk',
++    'OkkOqKkkkKkkkkKkOOkk',
++    '.OOOkKKKKkKKKKKkO.OO',
++    '....OqkkkKkkkkkO....',
++    '....OqKKKkKKKKkO....',
++    '....OqkkkKkkkkkO....',
++    '....OqKKKkKKKKkO....',
++    '....OPPPPPPPPppO....',
++    '....OPPPPPPPPppO....',
++    '....OPPPPPPPPppO....',
++    '....OPPPpOOPPPpO....',
++    '....OPpPpOOPPPpO....',
++    '....OpOpO.OPPPpO....',
++    '.....OkkO.OPpPpO....',
++    '.....OkkO.OpOpO.....',
++    '....ODDDDO.OkkO.....',
++    '....ODDDDO.OkkO.....',
++    '.....OOOO.ODDDDO....',
++    '..........ODDDDO....',
++  ];
++
++  static const List<String> _back19 = [
++    '....................',
++    '....................',
++    '....................',
++    '.......OOOOOO.......',
++    '......OqqqqqkO......',
++    '.....OqKBKKKKkO...O.',
++    '.....OqKKBKBKkO..OqO',
++    '.O..OqKKKKBKKKkOOqOq',
++    'OqO.OqKKKKKKKKkOOqqk',
++    'qOqOOqKKKKKKKKkOOkKk',
++    'qqkOkqKKKKKKKKkk.Oqk',
++    'kKkOOkKKKKKKKKkO.Oqk',
++    'OqkO.OqKKKKKKkO..Oqk',
++    'OqkO.OkKKKKKKkO..Oqk',
++    'OqkOOOOqKKKKkOOO.Oqk',
++    'OqkOqqqKKKKKKqqkOOqk',
++    'OqKqKKKKKKkKKKKKqqKk',
++    'OqKKKKKKKkKKKKKKkKKk',
++    'OqKKKKkkkKkkkkKkOqKk',
++    'OqKkKKKKKkKKKKKkOkKk',
++    'OkkOqKkkkKkkkkKkOOkk',
++    '.OOOkKKKKkKKKKKkO.OO',
++    '....OqkkkKkkkkkO....',
++    '....OqKKKkKKKKkO....',
++    '....OqkkkKkkkkkO....',
++    '....OqKKKkKKKKkO....',
++    '....OPPPPPPPPppO....',
++    '....OPPPPPPPPppO....',
++    '....OPPPPPPPPppO....',
++    '....OPPPpOOPPPpO....',
++    '....OPPPpOOPpPpO....',
++    '....OPPPpOOpOpO.....',
++    '....OPpPpO.OkkO.....',
++    '....OpOpO..OkkO.....',
++    '.....OkkO.ODDDDO....',
++    '.....OkkO.ODDDDO....',
++    '....ODDDDO.OOOO.....',
++    '....ODDDDO..........',
++  ];
++
++}

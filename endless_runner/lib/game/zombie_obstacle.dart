@@ -4,6 +4,7 @@ import 'package:flame/components.dart';
 import 'package:flutter/material.dart';
 
 import 'depth_component.dart';
+import 'zombie_sprites.dart';
 
 /// Cómo se mueve un zombi de costado mientras avanza hacia el jugador.
 enum ZombieBehavior {
@@ -259,6 +260,29 @@ class ZombieObstacle extends DepthComponent {
   }
 
   // --- Dibujo ----------------------------------------------------------------
+  //
+  // Pixel-art de 8 bits, en la línea del corredor (ver zombie_sprites.dart):
+  //  - slow: tanque panzón y calvo, con suturas y la panza al aire.
+  //  - normal: oficinista con corbata floja y costillas a la vista.
+  //  - fast: flaco, de capucha roja, ojos rojos y mandíbula desencajada.
+  // Cada uno tiene dos cuadros que se alternan al caminar.
+
+  /// Paleta de cada tipo, armada una sola vez.
+  static final Map<ZombieKind, Map<String, Color>> _palettes = {
+    for (final k in ZombieKind.values)
+      k: ZombiePalette.build(
+        skin: k.skin,
+        clothes: k.clothes,
+        eyes: k.eyes,
+      ),
+  };
+
+  PixelSprite _sprite(int frame) => switch (kind) {
+        ZombieKind.slow => frame == 0 ? ZombieSprites.slow0 : ZombieSprites.slow1,
+        ZombieKind.normal =>
+          frame == 0 ? ZombieSprites.normal0 : ZombieSprites.normal1,
+        ZombieKind.fast => frame == 0 ? ZombieSprites.fast0 : ZombieSprites.fast1,
+      };
 
   @override
   void render(Canvas canvas) {
@@ -271,9 +295,6 @@ class ZombieObstacle extends DepthComponent {
     final sway = sin(_time * kind.stepRate + _phase); // -1..1
     final bob = sway.abs() * h * 0.02;
 
-    final dark = Color.lerp(kind.clothes, Colors.black, 0.45)!;
-    final skin = kind.skin.withValues(alpha: a);
-
     // Sombra y aro del color del tipo en el piso.
     final groundH = (h * 0.06 + 3).clamp(3.0, 12.0).toDouble();
     canvas.drawOval(
@@ -282,7 +303,7 @@ class ZombieObstacle extends DepthComponent {
         width: w * 1.05,
         height: groundH,
       ),
-      Paint()..color = const Color(0xFF000000).withValues(alpha: 0.28 * a),
+      Paint()..color = const Color(0xFF000000).withValues(alpha: 0.32 * a),
     );
     canvas.drawOval(
       Rect.fromCenter(
@@ -312,146 +333,11 @@ class ZombieObstacle extends DepthComponent {
       }
     }
 
-    // Piernas: una se levanta mientras la otra apoya.
-    final legH = h * 0.26;
-    final legW = w * 0.26;
-    final liftL = max(0.0, sway) * h * 0.05;
-    final liftR = max(0.0, -sway) * h * 0.05;
-    final legPaint = Paint()..color = dark.withValues(alpha: a);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(w * 0.5 - legW * 1.1, h - legH - liftL, legW, legH),
-        Radius.circular(legW * 0.3),
-      ),
-      legPaint,
-    );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(w * 0.5 + legW * 0.1, h - legH - liftR, legW, legH),
-        Radius.circular(legW * 0.3),
-      ),
-      legPaint,
-    );
-
-    // Torso con la ropa rota.
-    final torsoW = w * kind.torso;
-    final top = h * 0.30 - bob;
-    final bottom = h - legH + h * 0.02;
-    final torso = Rect.fromLTRB(
-      w * 0.5 - torsoW * 0.5,
-      top,
-      w * 0.5 + torsoW * 0.5,
-      bottom,
-    );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(torso, Radius.circular(torsoW * 0.18)),
-      Paint()
-        ..shader = LinearGradient(
-          colors: [
-            kind.clothes.withValues(alpha: a),
-            dark.withValues(alpha: a),
-          ],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ).createShader(torso),
-    );
-    // Dobladillo roto: dientes de piel asomando abajo.
-    final teeth = Path();
-    const spikes = 4;
-    final spikeW = torsoW / spikes;
-    teeth.moveTo(torso.left, bottom);
-    for (var i = 0; i < spikes; i++) {
-      teeth
-        ..lineTo(torso.left + spikeW * (i + 0.5), bottom - h * 0.05)
-        ..lineTo(torso.left + spikeW * (i + 1), bottom);
-    }
-    teeth.close();
-    canvas.drawPath(teeth, Paint()..color = skin);
-    // Mancha oscura en el pecho.
-    canvas.drawOval(
-      Rect.fromLTWH(
-        torso.left + torsoW * 0.15,
-        top + (bottom - top) * 0.35,
-        torsoW * 0.3,
-        (bottom - top) * 0.18,
-      ),
-      Paint()..color = const Color(0xFF4A1414).withValues(alpha: 0.55 * a),
-    );
-
-    // Brazos estirados hacia el jugador, balanceándose.
-    final armPaint = Paint()
-      ..color = skin
-      ..strokeWidth = max(2.0, w * 0.13)
-      ..strokeCap = StrokeCap.round;
-    final shoulderY = top + h * 0.07;
-    canvas.drawLine(
-      Offset(torso.left, shoulderY),
-      Offset(0, shoulderY - h * 0.02 + sway * h * 0.04),
-      armPaint,
-    );
-    canvas.drawLine(
-      Offset(torso.right, shoulderY),
-      Offset(w, shoulderY - h * 0.02 - sway * h * 0.04),
-      armPaint,
-    );
-
-    // Cabeza.
-    final headR = min(w * 0.27, h * 0.13);
-    final head = Offset(w * 0.5 + sway * w * 0.03, top - headR * 0.35);
-    canvas.drawCircle(head, headR, Paint()..color = skin);
-    canvas.drawArc(
-      Rect.fromCircle(center: head, radius: headR),
-      pi,
-      pi,
-      true,
-      Paint()..color = dark.withValues(alpha: a),
-    );
-
-    // Ojos brillantes (un halo suave detrás de cada uno).
-    final eyeY = head.dy + headR * 0.05;
-    for (final side in [-1.0, 1.0]) {
-      final c = Offset(head.dx + side * headR * 0.4, eyeY);
-      canvas.drawCircle(
-        c,
-        headR * 0.34,
-        Paint()..color = kind.eyes.withValues(alpha: 0.28 * a),
-      );
-      canvas.drawCircle(
-        c,
-        headR * 0.18,
-        Paint()..color = kind.eyes.withValues(alpha: a),
-      );
-    }
-
-    // Boca abierta con dientes.
-    final mouth = Rect.fromCenter(
-      center: Offset(head.dx, head.dy + headR * 0.55),
-      width: headR * 0.9,
-      height: headR * 0.32,
-    );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(mouth, Radius.circular(headR * 0.1)),
-      Paint()..color = const Color(0xFF2A0C0C).withValues(alpha: a),
-    );
-    final tooth = Paint()..color = const Color(0xFFF2EFE0).withValues(alpha: a);
-    for (var i = 0; i < 3; i++) {
-      canvas.drawRect(
-        Rect.fromLTWH(
-          mouth.left + mouth.width * (0.12 + 0.3 * i),
-          mouth.top,
-          mouth.width * 0.16,
-          mouth.height * 0.4,
-        ),
-        tooth,
-      );
-    }
-
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(torso, Radius.circular(torsoW * 0.18)),
-      Paint()
-        ..color = const Color(0xFF1B2233).withValues(alpha: 0.45 * a)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2,
+    _sprite(sway >= 0 ? 0 : 1).draw(
+      canvas,
+      Rect.fromLTWH(0, -bob, w, h),
+      _palettes[kind]!,
+      alpha: a,
     );
   }
 }
