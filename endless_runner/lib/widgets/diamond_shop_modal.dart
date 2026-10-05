@@ -130,6 +130,10 @@ class _UpgradesSection extends StatelessWidget {
     UpgradeIds.startShield: Icons.shield_rounded,
     UpgradeIds.magnet: Icons.compass_calibration_rounded,
     UpgradeIds.multiplier: Icons.bolt_rounded,
+    UpgradeIds.startMagnet: Icons.rocket_launch_rounded,
+    UpgradeIds.startMultiplier: Icons.flash_on_rounded,
+    UpgradeIds.luck: Icons.casino_rounded,
+    UpgradeIds.extraHeart: Icons.favorite_rounded,
   };
 
   @override

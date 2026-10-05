@@ -43,6 +43,10 @@ class GameState {
   /// Corazones al empezar cada partida con cuenta Pro: uno extra.
   static const int proMaxLives = 3;
 
+  /// Diamantes que cuesta revivir pagando (cuenta basic). La Pro revive gratis
+  /// y la basic también puede revivir viendo un anuncio.
+  static const int reviveDiamondCost = 60;
+
   /// Precio (simulado) del pase a Pro, pago único.
   static const String proPrice = '\$2.99';
 
@@ -51,7 +55,10 @@ class GameState {
 
   final ValueNotifier<String> username = ValueNotifier('braian_123');
   final ValueNotifier<int> score = ValueNotifier(0);
-  final ValueNotifier<int> diamonds = ValueNotifier(85);
+  /// Billetera con la que arranca una instalación nueva.
+  static const int _initialDiamonds = 85;
+
+  final ValueNotifier<int> diamonds = ValueNotifier(_initialDiamonds);
   final ValueNotifier<String> accountType =
       ValueNotifier('basic'); // 'basic' | 'pro'
   final ValueNotifier<bool> isGameOver = ValueNotifier(false);
@@ -114,7 +121,9 @@ class GameState {
   bool get isPro => accountType.value == 'pro';
 
   /// Corazones con los que arranca cada partida según el tipo de cuenta.
-  int get startingLives => isPro ? proMaxLives : maxLives;
+  /// Suma el corazón extra de la tienda ([UpgradeIds.extraHeart]).
+  int get startingLives =>
+      (isPro ? proMaxLives : maxLives) + upgradeLevel(UpgradeIds.extraHeart);
 
   /// Mejora la cuenta a Pro (compra simulada, pago único). Beneficios: sin
   /// anuncios y un corazón extra por partida. Si hay una partida en curso, el
@@ -123,7 +132,7 @@ class GameState {
     if (isPro) return false;
     accountType.value = 'pro';
     if (!isGameOver.value && lives.value > 0) {
-      lives.value = min(proMaxLives, lives.value + 1);
+      lives.value = min(startingLives, lives.value + 1);
     }
     save();
     return true;
@@ -140,6 +149,18 @@ class GameState {
 
   /// true si la partida terminó y todavía se puede ofrecer revivir.
   bool get canRevive => isGameOver.value && !revivedThisRun;
+
+  /// true si se puede pagar el revivir con diamantes: partida terminada, sin
+  /// revivir todavía, cuenta basic (la Pro revive gratis) y saldo suficiente.
+  bool get canPayRevive =>
+      canRevive && !isPro && diamonds.value >= reviveDiamondCost;
+
+  /// Cobra el revivir con diamantes. No revive por sí misma: el juego llama a
+  /// [revive] (vía `RunnerGame.reviveRun`) después de un cobro exitoso.
+  bool payRevive() {
+    if (!canPayRevive) return false;
+    return spendDiamonds(reviveDiamondCost);
+  }
 
   /// Reanuda la partida terminada con una sola vida. `false` si no
   /// corresponde (no terminó, o ya se revivió en esta partida).
@@ -168,6 +189,10 @@ class GameState {
     if (level >= def.maxLevel) return false;
     if (!spendDiamonds(def.costs[level])) return false;
     upgradeLevels.value = {...upgradeLevels.value, def.id: level + 1};
+    // El corazón extra se nota enseguida si hay una partida en curso.
+    if (def.id == UpgradeIds.extraHeart && !isGameOver.value && lives.value > 0) {
+      lives.value = min(startingLives, lives.value + 1);
+    }
     save();
     return true;
   }
@@ -416,10 +441,7 @@ class GameState {
           sens.toDouble().clamp(minSensitivity, maxSensitivity).toDouble();
     }
     // Cuenta Pro guardada. Saves viejos no traen la clave: sigue basic.
-    if (json['pro'] == true) {
-      accountType.value = 'pro';
-      lives.value = proMaxLives;
-    }
+    if (json['pro'] == true) accountType.value = 'pro';
     final gems = json['diamonds'];
     if (gems is int && gems >= 0) diamonds.value = gems;
 
@@ -431,6 +453,9 @@ class GameState {
             def.id: (upgrades[def.id] as int).clamp(0, def.maxLevel).toInt(),
       };
     }
+    // Las vidas de la partida en curso dependen de Pro y de las mejoras,
+    // que ya están cargadas.
+    lives.value = startingLives;
     final milestones = json['milestones'];
     if (milestones is List) {
       claimedMilestones
@@ -475,6 +500,50 @@ class GameState {
     final store = _store;
     if (store == null) return;
     store.save(toJson()).catchError((Object _) {});
+  }
+
+  /// Restablece de fábrica: deja la app como una instalación nueva. Vuelve a
+  /// cuenta basic, billetera inicial, sin mejoras, hitos, desafíos ni récord,
+  /// con los ajustes por defecto y el tutorial sin ver, y borra lo guardado en
+  /// disco. El nombre de usuario simulado no cambia.
+  void resetToFactory() {
+    // Partida en curso (si la hubiera).
+    score.value = 0;
+    runDiamonds.value = 0;
+    isGameOver.value = false;
+    isPaused.value = false;
+    isNewRecord.value = false;
+    revivedThisRun = false;
+    _bestBeforeFinish = 0;
+    bestScore.value = 0;
+
+    // Cuenta y economía.
+    accountType.value = 'basic';
+    diamonds.value = _initialDiamonds;
+    upgradeLevels.value = const {};
+    claimedMilestones.clear();
+    rewardEvent.value = null;
+
+    // Desafíos y anuncios del día: se sortean de nuevo.
+    _progress.clear();
+    _claimedChallenges.clear();
+    _adsToday = 0;
+    _dayKey = '';
+    _ensureToday();
+
+    // Ajustes.
+    tutorialSeen.value = false;
+    musicEnabled.value = true;
+    swipeSensitivity.value = defaultSensitivity;
+    themeMode.value = ThemeMode.system;
+
+    // Vidas según la cuenta ya restablecida (basic, sin mejoras).
+    lives.value = startingLives;
+    _notifyRewards();
+
+    // Disco: se borra la clave en lugar de guardar los valores por defecto.
+    final store = _store;
+    if (store != null) store.clear().catchError((Object _) {});
   }
 
   void markTutorialSeen() {

@@ -147,6 +147,10 @@ class UpgradeIds {
   static const startShield = 'startShield';
   static const magnet = 'magnet';
   static const multiplier = 'multiplier';
+  static const startMagnet = 'startMagnet';
+  static const startMultiplier = 'startMultiplier';
+  static const luck = 'luck';
+  static const extraHeart = 'extraHeart';
 }
 
 const List<UpgradeDef> kUpgrades = [
@@ -167,6 +171,31 @@ const List<UpgradeDef> kUpgrades = [
     title: 'Multiplicador duradero',
     description: '+2 s de x2 por nivel',
     costs: [50, 100, 150],
+  ),
+  // --- Mejoras de la segunda tanda: sumideros de diamantes de largo plazo ---
+  UpgradeDef(
+    id: UpgradeIds.startMagnet,
+    title: 'Imán de arranque',
+    description: 'Cada partida arranca con +3 s de imán por nivel',
+    costs: [80, 160, 240],
+  ),
+  UpgradeDef(
+    id: UpgradeIds.startMultiplier,
+    title: 'Multiplicador de arranque',
+    description: 'Cada partida arranca con +3 s de x2 por nivel',
+    costs: [100, 200, 300],
+  ),
+  UpgradeDef(
+    id: UpgradeIds.luck,
+    title: 'Buena racha',
+    description: 'Los power-ups aparecen un 15 % antes por nivel',
+    costs: [120, 240, 360],
+  ),
+  UpgradeDef(
+    id: UpgradeIds.extraHeart,
+    title: 'Corazón extra',
+    description: 'Cada partida arranca con un corazón más',
+    costs: [400],
   ),
 ];
 

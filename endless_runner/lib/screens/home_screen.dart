@@ -232,6 +232,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                           gameState: state,
                                           onRestart: _restartAfterAd,
                                           onRevive: _reviveWithAd,
+                          onReviveWithDiamonds: _reviveWithDiamonds,
                                         )
                                       : const SizedBox.shrink(
                                           key: ValueKey('alive'),
@@ -288,6 +289,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _game.restartRun();
   }
 
+  /// "Revivir" pagando diamantes (cuenta basic): cobra y sigue la partida.
+  void _reviveWithDiamonds() {
+    if (_reviving || !widget.gameState.payRevive()) return;
+    _game.reviveRun();
+  }
+
   bool _reviving = false;
 
   /// "Revivir" desde el resumen: anuncio con premio (hay que verlo completo) y
@@ -324,7 +331,8 @@ class _LivesChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([gameState.lives, gameState.accountType]),
+      listenable: Listenable.merge(
+          [gameState.lives, gameState.accountType, gameState.upgradeLevels]),
       builder: (_, __) => _buildChip(gameState.lives.value),
     );
   }

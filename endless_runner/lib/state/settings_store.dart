@@ -19,6 +19,13 @@ class SettingsStore {
     return decoded is Map<String, dynamic> ? decoded : null;
   }
 
+  /// Borra todo lo guardado: la próxima vez que se abra la app es como una
+  /// instalación nueva (`load` devuelve `null`).
+  Future<void> clear() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_key);
+  }
+
   Future<void> save(Map<String, dynamic> data) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_key, jsonEncode(data));

@@ -772,7 +772,11 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
   // --- Monedas: patrones -------------------------------------------------------
 
   /// Segundos hasta la siguiente tanda de monedas.
-  double _nextCoinDelay() => 2.6 + _rng.nextDouble() * 1.4;
+  ///
+  /// Más espaciadas que antes (3.4-5.0 s, antes 2.6-4.0 s): bajan ~20 % los
+  /// diamantes por partida para que las mejoras de la tienda no se agoten en
+  /// pocas carreras.
+  double _nextCoinDelay() => 3.4 + _rng.nextDouble() * 1.6;
 
   /// Tipo de patrón con pesos: el barrido en línea es el más frecuente.
   CoinPattern _rollCoinPattern() {
@@ -841,7 +845,12 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
   // --- Power-ups ---------------------------------------------------------------
 
   /// Segundos hasta el siguiente power-up.
-  double _nextPowerUpDelay() => 14 + _rng.nextDouble() * 8;
+  ///
+  /// La mejora "Buena racha" lo acorta un 15 % por nivel.
+  double _nextPowerUpDelay() {
+    final luck = gameState.upgradeLevel(UpgradeIds.luck);
+    return (14 + _rng.nextDouble() * 8) * (1 - 0.15 * luck);
+  }
 
   PowerUpKind _rollPowerUpKind() {
     final roll = _rng.nextDouble();
@@ -1236,5 +1245,11 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     if (gameState.upgradeLevel(UpgradeIds.startShield) > 0) {
       powerUps.apply(PowerUpKind.shield);
     }
+    // Imán y x2 de arranque: segundos de regalo al empezar la partida.
+    powerUps
+      ..magnetTimer =
+          3.0 * gameState.upgradeLevel(UpgradeIds.startMagnet)
+      ..multiplierTimer =
+          3.0 * gameState.upgradeLevel(UpgradeIds.startMultiplier);
   }
 }

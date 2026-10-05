@@ -12,6 +12,81 @@ Future<void> showSettingsDialog(BuildContext context, GameState gameState) =>
       body: SettingsContent(gameState: gameState),
     );
 
+/// Pide confirmación y, si el usuario acepta, restablece la app de fábrica.
+/// Cierra también el diálogo de Ajustes y avisa con un cartelito.
+Future<void> _confirmFactoryReset(
+  BuildContext settingsContext,
+  GameState gameState,
+) {
+  final navigator = Navigator.of(settingsContext);
+  final messenger = ScaffoldMessenger.maybeOf(settingsContext);
+  return showPixelDialog(
+    settingsContext,
+    title: 'RESTABLECER',
+    body: _FactoryResetConfirm(
+      onConfirm: () {
+        gameState.resetToFactory();
+        navigator.pop(); // cierra Ajustes (la confirmación ya se cerró sola)
+        messenger?.showSnackBar(
+          const SnackBar(content: Text('Listo: la app volvió a estado de fábrica')),
+        );
+      },
+    ),
+  );
+}
+
+class _FactoryResetConfirm extends StatelessWidget {
+  const _FactoryResetConfirm({required this.onConfirm});
+
+  final VoidCallback onConfirm;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          '¿Borrar todo?',
+          style: PixelStyle.text(11, color: PixelStyle.cream),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          'Se pierden los diamantes, las mejoras, el récord, los logros y los '
+          'ajustes. La cuenta vuelve a BASIC y el tutorial se muestra de nuevo. '
+          'No se puede deshacer.',
+          style: PixelStyle.text(8, color: PixelStyle.creamDim, height: 1.7),
+        ),
+        const SizedBox(height: 18),
+        PixelButton(
+          semanticLabel: 'Confirmar restablecer de fábrica',
+          pixel: 2,
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          fill: const [PixelStyle.alert, Color(0xFF8E2323)],
+          border: PixelStyle.ink,
+          onTap: () {
+            Navigator.of(context).pop(); // cierra la confirmación
+            onConfirm();
+          },
+          child: Center(
+            child: Text('SÍ, BORRAR TODO', style: PixelStyle.text(9)),
+          ),
+        ),
+        const SizedBox(height: 10),
+        PixelButton(
+          semanticLabel: 'Cancelar',
+          pixel: 2,
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          onTap: () => Navigator.of(context).pop(),
+          child: Center(
+            child: Text('CANCELAR', style: PixelStyle.text(9)),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// Abre el diálogo con el mejor puntaje.
 Future<void> showRecordDialog(BuildContext context, GameState gameState) =>
     showPixelDialog(
@@ -211,6 +286,24 @@ class SettingsContent extends StatelessWidget {
                   'Se mostrará al empezar a jugar.',
                   style: PixelStyle.text(8, color: PixelStyle.plankTop, height: 1.6),
                 ),
+        ),
+        const SizedBox(height: 20),
+        const _Label('DATOS'),
+        PixelButton(
+          semanticLabel: 'Restablecer de fábrica',
+          pixel: 2,
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          fill: const [PixelStyle.alert, Color(0xFF8E2323)],
+          border: PixelStyle.ink,
+          onTap: () => _confirmFactoryReset(context, gameState),
+          child: Center(
+            child: Text('RESTABLECER DE FÁBRICA', style: PixelStyle.text(9)),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Vuelve todo como recién instalada: diamantes, cuenta, mejoras y ajustes.',
+          style: PixelStyle.text(8, color: PixelStyle.creamDim, height: 1.6),
         ),
       ],
     );

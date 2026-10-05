@@ -19,6 +19,7 @@ class GameOverOverlay extends StatelessWidget {
     required this.gameState,
     required this.onRestart,
     this.onRevive,
+    this.onReviveWithDiamonds,
   });
 
   final GameState gameState;
@@ -26,6 +27,10 @@ class GameOverOverlay extends StatelessWidget {
   /// Revivir (anuncio con premio; gratis para Pro). Si es null, o si ya se
   /// usó en la partida, el botón no aparece.
   final VoidCallback? onRevive;
+
+  /// Revivir pagando [GameState.reviveDiamondCost] diamantes (solo cuenta
+  /// basic: la Pro revive gratis). Si es null, el botón no aparece.
+  final VoidCallback? onReviveWithDiamonds;
 
   /// Camino de reinicio. En la app real pasa por el anuncio simulado (mismo
   /// requisito que la botonera externa); en los tests es un contador.
@@ -150,6 +155,25 @@ class GameOverOverlay extends StatelessWidget {
                             style: FilledButton.styleFrom(
                               backgroundColor: AppColors.gem,
                               foregroundColor: Colors.white,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                      if (onReviveWithDiamonds != null &&
+                          gameState.canRevive &&
+                          !gameState.isPro) ...[
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            key: const ValueKey('revive-diamonds-button'),
+                            onPressed: gameState.canPayRevive
+                                ? onReviveWithDiamonds
+                                : null,
+                            icon: const Icon(Icons.diamond_rounded,
+                                color: AppColors.gemDeep),
+                            label: Text(
+                              'Revivir con ${GameState.reviveDiamondCost} diamantes',
                             ),
                           ),
                         ),
