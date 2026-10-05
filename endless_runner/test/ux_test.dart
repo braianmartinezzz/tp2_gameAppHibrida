@@ -176,7 +176,7 @@ void main() {
   });
 
   group('HomeScreen', () {
-    testWidgets('tutorial de la primera vez: salto, deslizamiento y cierre',
+    testWidgets('tutorial de la primera vez: gestos, información y cierre',
         (tester) async {
       await tester.binding.setSurfaceSize(const Size(480, 760));
       final state = GameState()..themeMode.value = ThemeMode.dark;
@@ -214,8 +214,42 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
       expect(find.text('¡Bien!'), findsOneWidget);
 
-      // Cierre: "¡Listo!", y se recuerda que ya se vio.
+      // Paso 3: a la izquierda.
       await tester.pump(const Duration(milliseconds: 1200));
+      expect(find.text('Deslizá a la izquierda'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.drag(
+        find.byType(GameWidget<RunnerGame>),
+        const Offset(-90, 0),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('¡Bien!'), findsOneWidget);
+
+      // Paso 4: a la derecha.
+      await tester.pump(const Duration(milliseconds: 1200));
+      expect(find.text('Deslizá a la derecha'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.drag(
+        find.byType(GameWidget<RunnerGame>),
+        const Offset(90, 0),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('¡Bien!'), findsOneWidget);
+
+      // Pasos informativos: diamantes y corazones, power-ups, peligros.
+      await tester.pump(const Duration(milliseconds: 1200));
+      expect(find.text('Diamantes y corazones'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('tutorial-next')));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Power-ups'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('tutorial-next')));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Cuidado con el camino'), findsOneWidget);
+      expect(find.text('¡Entendido!'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('tutorial-next')));
+      await tester.pump(const Duration(milliseconds: 400));
+
+      // Cierre: "¡Listo!", y se recuerda que ya se vio.
       expect(find.text('¡Listo, a correr!'), findsOneWidget);
       await tester.pump(const Duration(milliseconds: 1500));
       await tester.pump(const Duration(milliseconds: 400));
