@@ -20,6 +20,14 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.14.3
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/ic_zombie_run.png"
+  remove_alpha_ios: true
+  min_sdk_android: 21
 
 flutter:
   uses-material-design: true
@@ -27,6 +35,7 @@ flutter:
     - assets/images/character/kenney_platformerCharacters/adventurer_vector.svg
     - assets/images/character/player_atlas.png
     - assets/images/in_zombie_run_menu.png
+    - assets/images/ic_zombie_run.png
     - assets/music/
     - assets/video/
 

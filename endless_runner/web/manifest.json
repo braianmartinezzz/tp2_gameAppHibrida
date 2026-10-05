@@ -1,11 +1,11 @@
 {
-    "name": "endless_runner",
-    "short_name": "endless_runner",
+    "name": "Zombie RUN",
+    "short_name": "Zombie RUN",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#14122B",
     "theme_color": "#5B3FD0",
-    "description": "Runner 2.5D: endless runner en desiertos día/noche.",
+    "description": "Zombie RUN: aventura de supervivencia en desiertos día/noche.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

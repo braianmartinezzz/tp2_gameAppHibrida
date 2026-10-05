@@ -5,6 +5,7 @@ import 'screens/start_screen.dart';
 import 'state/game_state.dart';
 import 'state/settings_store.dart';
 import 'theme/app_theme.dart';
+import 'widgets/ad_video_cache.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -36,6 +37,11 @@ class _RunnerAppState extends State<RunnerApp> with WidgetsBindingObserver {
     // el brillo del sistema en el estado desde el arranque.
     widget.gameState.platformBrightness.value =
         ui.PlatformDispatcher.instance.platformBrightness;
+    // Después del primer frame (para no frenar el arranque) se precarga el
+    // video del primer anuncio: el modal se abre con el listo en vez de
+    // esperar la inicialización del MP4. Si falla, el anuncio simulado de
+    // siempre se encarga.
+    WidgetsBinding.instance.addPostFrameCallback((_) => AdVideoCache.warmUp());
   }
 
   @override
