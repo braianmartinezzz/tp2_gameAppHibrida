@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import 'diamond_shop_modal.dart';
+import 'pro_upgrade_modal.dart';
 
 /// Barra superior: avatar, usuario, score, tipo de cuenta y diamantes.
 ///
@@ -91,9 +92,17 @@ class GameHeader extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          ValueListenableBuilder<String>(
-            valueListenable: gameState.accountType,
-            builder: (_, type, __) => _AccountBadge(type: type),
+          GestureDetector(
+            key: const ValueKey('account-badge'),
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              onBeforeShop?.call();
+              showProUpgradeModal(context, gameState);
+            },
+            child: ValueListenableBuilder<String>(
+              valueListenable: gameState.accountType,
+              builder: (_, type, __) => _AccountBadge(type: type),
+            ),
           ),
           const SizedBox(width: 8),
           GestureDetector(
@@ -169,6 +178,11 @@ class _AccountBadge extends StatelessWidget {
           if (pro) ...[
             const Icon(Icons.workspace_premium_rounded,
                 size: 14, color: AppColors.goldInk),
+            const SizedBox(width: 3),
+          ],
+          if (!pro) ...[
+            const Icon(Icons.arrow_circle_up_rounded,
+                size: 14, color: Colors.white),
             const SizedBox(width: 3),
           ],
           Text(

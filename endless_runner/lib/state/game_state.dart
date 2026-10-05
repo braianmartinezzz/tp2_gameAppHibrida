@@ -37,8 +37,14 @@ class GameState {
   static const double maxSensitivity = 2.0;
   static const double defaultSensitivity = 1.0;
 
-  /// Corazones al empezar cada partida.
+  /// Corazones al empezar cada partida (cuenta basic).
   static const int maxLives = 2;
+
+  /// Corazones al empezar cada partida con cuenta Pro: uno extra.
+  static const int proMaxLives = 3;
+
+  /// Precio (simulado) del pase a Pro, pago único.
+  static const String proPrice = '\$2.99';
 
   /// Anuncios voluntarios con premio por día.
   static const int maxAdsPerDay = 5;
@@ -106,6 +112,22 @@ class GameState {
   final ValueNotifier<int> runDiamonds = ValueNotifier(0);
 
   bool get isPro => accountType.value == 'pro';
+
+  /// Corazones con los que arranca cada partida según el tipo de cuenta.
+  int get startingLives => isPro ? proMaxLives : maxLives;
+
+  /// Mejora la cuenta a Pro (compra simulada, pago único). Beneficios: sin
+  /// anuncios y un corazón extra por partida. Si hay una partida en curso, el
+  /// corazón extra se suma al instante. Devuelve `false` si ya era Pro.
+  bool upgradeToPro() {
+    if (isPro) return false;
+    accountType.value = 'pro';
+    if (!isGameOver.value && lives.value > 0) {
+      lives.value = min(proMaxLives, lives.value + 1);
+    }
+    save();
+    return true;
+  }
 
   // --- Revivir ---------------------------------------------------------------
 
@@ -330,6 +352,7 @@ class GameState {
     return true;
   }
 
+  /// Alterna basic/pro sin pasar por la compra (atajo para pruebas).
   void toggleAccountType() {
     accountType.value = isPro ? 'basic' : 'pro';
   }
@@ -359,6 +382,7 @@ class GameState {
           ThemeMode.dark => 'dark',
         },
         'diamonds': diamonds.value,
+        'pro': isPro,
         'upgrades': Map<String, int>.of(upgradeLevels.value),
         'milestones': claimedMilestones.toList(),
         'daily': {
@@ -390,6 +414,11 @@ class GameState {
     if (sens is num) {
       swipeSensitivity.value =
           sens.toDouble().clamp(minSensitivity, maxSensitivity).toDouble();
+    }
+    // Cuenta Pro guardada. Saves viejos no traen la clave: sigue basic.
+    if (json['pro'] == true) {
+      accountType.value = 'pro';
+      lives.value = proMaxLives;
     }
     final gems = json['diamonds'];
     if (gems is int && gems >= 0) diamonds.value = gems;
@@ -471,7 +500,7 @@ class GameState {
     isPaused.value = false;
     score.value = 0;
     runDiamonds.value = 0;
-    lives.value = maxLives;
+    lives.value = startingLives;
     isNewRecord.value = false;
     revivedThisRun = false;
     isGameOver.value = false;

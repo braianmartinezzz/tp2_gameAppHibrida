@@ -23,7 +23,7 @@ void showDiamondShopModal(BuildContext context, GameState gameState) {
     ),
     _DiamondPack(
       amount: 1200,
-      label: 'Pro',
+      label: 'Mega',
       price: '\$9.99',
       accent: Color(0xFFA06BFF),
       gems: 3,

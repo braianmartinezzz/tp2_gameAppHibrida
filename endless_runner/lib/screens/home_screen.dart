@@ -323,9 +323,14 @@ class _LivesChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<int>(
-      valueListenable: gameState.lives,
-      builder: (_, lives, __) => Container(
+    return ListenableBuilder(
+      listenable: Listenable.merge([gameState.lives, gameState.accountType]),
+      builder: (_, __) => _buildChip(gameState.lives.value),
+    );
+  }
+
+  Widget _buildChip(int lives) {
+    return Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
           color: const Color(0xFF0B1224).withValues(alpha: 0.55),
@@ -335,7 +340,7 @@ class _LivesChip extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            for (var i = 0; i < GameState.maxLives; i++)
+            for (var i = 0; i < gameState.startingLives; i++)
               Padding(
                 padding: EdgeInsets.only(left: i == 0 ? 0 : 2),
                 child: AnimatedSwitcher(
@@ -360,7 +365,6 @@ class _LivesChip extends StatelessWidget {
               ),
           ],
         ),
-      ),
     );
   }
 }
