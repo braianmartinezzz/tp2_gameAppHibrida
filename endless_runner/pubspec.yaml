@@ -10,6 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   flame: ^1.18.0
+  flame_audio: ^2.12.0
   flutter_svg: ^2.0.10
   shared_preferences: ^2.3.0
   video_player: ^2.9.2
@@ -25,4 +26,13 @@ flutter:
   assets:
     - assets/images/character/kenney_platformerCharacters/adventurer_vector.svg
     - assets/images/character/player_atlas.png
+    - assets/images/in_zombie_run_menu.png
+    - assets/music/
     - assets/video/
+
+  # Fuente pixel (SIL Open Font License, ver assets/fonts/OFL.txt) para los
+  # menús de 8 bits.
+  fonts:
+    - family: PressStart2P
+      fonts:
+        - asset: assets/fonts/PressStart2P-Regular.ttf

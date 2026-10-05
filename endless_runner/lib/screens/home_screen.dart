@@ -208,6 +208,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                           onResume: _game.resumeGame,
                                           onRestart: _restartAfterAd,
                                           onShowTutorial: _replayTutorial,
+                                          // Solo hay menú al que volver si se
+                                          // llegó desde la pantalla de inicio.
+                                          onMenu: Navigator.of(context).canPop()
+                                              ? _backToMenu
+                                              : null,
                                         )
                                       : const SizedBox.shrink(
                                           key: ValueKey('running'),
@@ -250,6 +255,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
       ),
     );
+  }
+
+  /// "Menú principal" de la pausa: guarda y vuelve a la pantalla de inicio.
+  void _backToMenu() {
+    widget.gameState.save();
+    Navigator.of(context).pop();
   }
 
   /// Fin (o salteo) del tutorial: se recuerda que ya se vio y arranca una

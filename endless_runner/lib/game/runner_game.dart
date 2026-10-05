@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:flame/game.dart';
 import 'package:flame/events.dart';
 import 'package:flutter/material.dart';
+import '../audio/game_music.dart';
 import '../state/game_state.dart';
 import '../state/rewards.dart';
 import 'chase_horde.dart';
@@ -26,7 +27,8 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     required this.gameState,
     this.hordeEnabled = true,
     this.zombiesEnabled = true,
-  }) {
+    GameMusic? music,
+  }) : music = music ?? GameMusic() {
     // El tema se escucha desde el minuto cero (no recién cuando el motor
     // arranca) y el fundido nace en el modo efectivo: así la primera vez que
     // se dibuja el desierto ya sale con el día o la noche que corresponde.
@@ -81,6 +83,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
       !tutorialActive;
 
   /// Pausa la partida y avisa a la UI (overlay de pausa) vía [GameState].
+  /// Al ponerse `isPaused` los oyentes de [_syncMusic] cortan la música.
   void pauseGame() {
     if (!canPause) return;
     gameState.isPaused.value = true;
@@ -88,11 +91,61 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     pauseEngine();
   }
 
-  /// Reanuda una partida pausada con [pauseGame].
+  /// Reanuda una partida pausada con [pauseGame]: los oyentes de [_syncMusic]
+  /// vuelven a poner la música desde donde se cortó.
   void resumeGame() {
     if (!gameState.isPaused.value) return;
     gameState.isPaused.value = false;
     resumeEngine();
+  }
+
+  // --- Música ----------------------------------------------------------------
+
+  /// Música de la partida (`assets/music/powerup.mp3`). Arranca cuando el
+  /// corredor sale a correr y sigue el ciclo de vida del juego: pausa,
+  /// muerte, revivir, reinicio, interruptor de Ajustes y vuelta al menú.
+  /// Se puede inyectar (tests) para escuchar qué manda el juego a hacer.
+  final GameMusic music;
+
+  /// true mientras se enganchan los oyentes de [music] (para no duplicarlos
+  /// si el juego se vuelve a montar).
+  bool _listeningMusic = false;
+
+  /// true mientras [restartRun] limpia la corrida: los oyentes que saltan al
+  /// resetear el estado no tocan la música, porque el arranque de la partida
+  /// nueva la manda a empezar desde cero al final.
+  bool _restartingRun = false;
+
+  void _listenMusic() {
+    if (_listeningMusic) return;
+    _listeningMusic = true;
+    gameState.isGameOver.addListener(_syncMusic);
+    gameState.isPaused.addListener(_syncMusic);
+    gameState.musicEnabled.addListener(_syncMusic);
+  }
+
+  void _unlistenMusic() {
+    if (!_listeningMusic) return;
+    _listeningMusic = false;
+    gameState.isGameOver.removeListener(_syncMusic);
+    gameState.isPaused.removeListener(_syncMusic);
+    gameState.musicEnabled.removeListener(_syncMusic);
+  }
+
+  /// Ajusta la música al estado de la partida: sonando mientras hay corrida
+  /// viva y sin pausa, cortada al morir, al pausar o si el jugador la apagó
+  /// en Ajustes. Cortar usa [GameMusic.pause] (guarda el punto) para que
+  /// revivir o reanudar la siga donde estaba.
+  void _syncMusic() {
+    if (_restartingRun) return;
+    final playing = gameState.musicEnabled.value &&
+        !gameState.isGameOver.value &&
+        !gameState.isPaused.value;
+    if (playing) {
+      music.resume();
+    } else {
+      music.pause();
+    }
   }
 
   late PlayerComponent _player;
@@ -214,15 +267,20 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     // Por si el juego se desmontó y se volvió a montar: los oyentes vuelven a
     // engancharse y el fundido se re-sincroniza con el tema vigente.
     _listenTheme();
+    _listenMusic();
     _themeBlend = _themeTarget;
     _syncPerspective();
     _spawnPlayer();
     _applyStartUpgrades();
+    // El corredor sale a correr: ahí empieza la música de la partida.
+    _syncMusic();
   }
 
   @override
   void onRemove() {
     _unlistenTheme();
+    _unlistenMusic();
+    music.dispose(); // vuelta al menú: la música se corta y se libera
     super.onRemove();
   }
 
@@ -1102,49 +1160,63 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
 
   /// Llamado desde la botonera externa (fuera del juego).
   void restartRun() {
-    _map.resetRun(); // el mapa vuelve al desierto y a sus props iniciales
-    for (final obstacle in _obstacles) {
-      obstacle.removeFromParent();
+    // La partida empieza de cero: mientras se limpia, los oyentes de música
+    // no reanudan la pista vieja (ver [_restartingRun]).
+    _restartingRun = true;
+    try {
+      _map.resetRun(); // el mapa vuelve al desierto y a sus props iniciales
+      for (final obstacle in _obstacles) {
+        obstacle.removeFromParent();
+      }
+      _obstacles.clear();
+      for (final zombie in _zombies) {
+        zombie.removeFromParent();
+      }
+      _zombies.clear();
+      _zombieCooldown = _firstZombieDelay;
+      _zombieDue = false;
+      _zombiesSpawned = 0;
+      _lastKinds.clear();
+      _sinceObstacleSpawn = 999;
+      _sinceZombieSpawn = 999;
+      for (final coin in _coins) {
+        coin.removeFromParent();
+      }
+      _coins.clear();
+      for (final item in _powerUpItems) {
+        item.removeFromParent();
+      }
+      _powerUpItems.clear();
+      powerUps.reset();
+      juice.reset();
+      _wasAirborne = false;
+      _deathTimer = 0;
+      _coinCooldown = 2.0;
+      _powerUpCooldown = 10.0;
+      _elapsed = 0;
+      _lastWasCar = false;
+      _difficultySpeed = 260;
+      _scoreCarry = 0;
+      horde.reset();
+      gameState.resetRun();
+      _player.resetTo(
+        startPosition: Vector2(size.x / 2, size.y * 0.86),
+      );
+      _swipeX = 0;
+      _swipeY = 0;
+      _gestureConsumed = false;
+      _applyStartUpgrades();
+      resumeEngine();
+    } finally {
+      _restartingRun = false;
     }
-    _obstacles.clear();
-    for (final zombie in _zombies) {
-      zombie.removeFromParent();
+    // Corrida nueva: el tema arranca desde el principio (o queda cortado si
+    // el jugador lo apagó en Ajustes).
+    if (gameState.musicEnabled.value) {
+      music.start();
+    } else {
+      music.pause();
     }
-    _zombies.clear();
-    _zombieCooldown = _firstZombieDelay;
-    _zombieDue = false;
-    _zombiesSpawned = 0;
-    _lastKinds.clear();
-    _sinceObstacleSpawn = 999;
-    _sinceZombieSpawn = 999;
-    for (final coin in _coins) {
-      coin.removeFromParent();
-    }
-    _coins.clear();
-    for (final item in _powerUpItems) {
-      item.removeFromParent();
-    }
-    _powerUpItems.clear();
-    powerUps.reset();
-    juice.reset();
-    _wasAirborne = false;
-    _deathTimer = 0;
-    _coinCooldown = 2.0;
-    _powerUpCooldown = 10.0;
-    _elapsed = 0;
-    _lastWasCar = false;
-    _difficultySpeed = 260;
-    _scoreCarry = 0;
-    horde.reset();
-    gameState.resetRun();
-    _player.resetTo(
-      startPosition: Vector2(size.x / 2, size.y * 0.86),
-    );
-    _swipeX = 0;
-    _swipeY = 0;
-    _gestureConsumed = false;
-    _applyStartUpgrades();
-    resumeEngine();
   }
 
   /// Pasa a los power-ups las duraciones que dan las mejoras compradas:

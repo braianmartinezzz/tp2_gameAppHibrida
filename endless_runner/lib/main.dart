@@ -1,7 +1,7 @@
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'screens/home_screen.dart';
+import 'screens/start_screen.dart';
 import 'state/game_state.dart';
 import 'state/settings_store.dart';
 import 'theme/app_theme.dart';
@@ -59,14 +59,14 @@ class _RunnerAppState extends State<RunnerApp> with WidgetsBindingObserver {
       builder: (context, mode, _) {
         return MaterialApp(
           debugShowCheckedModeBanner: false,
-          title: 'Runner 2.5D',
+          title: 'Zombie Run',
           themeMode: mode,
           theme: AppTheme.light,
           darkTheme: AppTheme.dark,
           // Salto suave al alternar claro/oscuro (si no, el cambio es seco).
           themeAnimationDuration: const Duration(milliseconds: 320),
           themeAnimationCurve: Curves.easeInOut,
-          home: HomeScreen(gameState: widget.gameState),
+          home: StartScreen(gameState: widget.gameState),
         );
       },
     );

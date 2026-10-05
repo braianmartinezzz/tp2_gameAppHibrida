@@ -19,6 +19,7 @@ class PauseOverlay extends StatefulWidget {
     required this.onResume,
     required this.onRestart,
     required this.onShowTutorial,
+    this.onMenu,
   });
 
   final GameState gameState;
@@ -31,6 +32,9 @@ class PauseOverlay extends StatefulWidget {
 
   /// Volver a ver el tutorial.
   final VoidCallback onShowTutorial;
+
+  /// Volver al menú principal (si es null, el botón no se muestra).
+  final VoidCallback? onMenu;
 
   @override
   State<PauseOverlay> createState() => _PauseOverlayState();
@@ -98,6 +102,7 @@ class _PauseOverlayState extends State<PauseOverlay> {
                     onResume: _startCountdown,
                     onRestart: widget.onRestart,
                     onShowTutorial: widget.onShowTutorial,
+                    onMenu: widget.onMenu,
                   )
                 : _Countdown(key: ValueKey('count-$_count'), value: _count!),
           ),
@@ -141,12 +146,14 @@ class _PauseCard extends StatelessWidget {
     required this.onResume,
     required this.onRestart,
     required this.onShowTutorial,
+    this.onMenu,
   });
 
   final GameState gameState;
   final VoidCallback onResume;
   final VoidCallback onRestart;
   final VoidCallback onShowTutorial;
+  final VoidCallback? onMenu;
 
   @override
   Widget build(BuildContext context) {
@@ -208,6 +215,17 @@ class _PauseCard extends StatelessWidget {
                       ),
                     ],
                   ),
+                  if (onMenu != null) ...[
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: TextButton.icon(
+                        onPressed: onMenu,
+                        icon: const Icon(Icons.home_rounded, size: 18),
+                        label: const Text('Menú principal'),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),

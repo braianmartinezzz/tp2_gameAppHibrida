@@ -83,6 +83,11 @@ class GameState {
   /// true si el usuario ya completó (o salteó) el tutorial de gestos.
   final ValueNotifier<bool> tutorialSeen = ValueNotifier(false);
 
+  /// Música de la partida prendida (Ajustes). Es el único que decide si
+  /// [GameMusic] suena o no: el interruptor corta al instante y se guarda con
+  /// el resto del progreso.
+  final ValueNotifier<bool> musicEnabled = ValueNotifier(true);
+
   /// Multiplicador de sensibilidad de los gestos: valores altos aceptan
   /// deslizamientos más cortos.
   final ValueNotifier<double> swipeSensitivity =
@@ -346,6 +351,7 @@ class GameState {
 
   Map<String, dynamic> toJson() => {
         'tutorialSeen': tutorialSeen.value,
+        'music': musicEnabled.value,
         'swipeSensitivity': swipeSensitivity.value,
         'theme': switch (themeMode.value) {
           ThemeMode.system => 'system',
@@ -365,6 +371,10 @@ class GameState {
 
   void _applyJson(Map<String, dynamic> json) {
     tutorialSeen.value = json['tutorialSeen'] == true;
+    // Música guardada. Saves viejos no traen la clave: se respeta el default
+    // (prendida) y no se pisa nada.
+    final music = json['music'];
+    if (music is bool) musicEnabled.value = music;
     // Tema guardado. Saves viejos no traen la clave: se respeta el default
     // (system) y no se pisa nada.
     final savedTheme = json['theme'];
@@ -447,6 +457,13 @@ class GameState {
   void setSwipeSensitivity(double value) {
     swipeSensitivity.value =
         value.clamp(minSensitivity, maxSensitivity).toDouble();
+    save();
+  }
+
+  /// Prende o apaga la música de la partida y lo persiste.
+  void setMusicEnabled(bool value) {
+    if (musicEnabled.value == value) return;
+    musicEnabled.value = value;
     save();
   }
 
