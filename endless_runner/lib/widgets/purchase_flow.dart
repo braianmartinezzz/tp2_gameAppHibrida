@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../audio/game_sfx.dart';
 import '../theme/app_theme.dart';
+import 'back_arrow.dart';
 
 /// Qué se está comprando en [showPurchaseFlow].
 class PurchaseItem {
@@ -214,6 +215,10 @@ class _PurchaseSheetState extends State<_PurchaseSheet> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        const Align(
+          alignment: Alignment.centerLeft,
+          child: SubtleBackArrow(),
+        ),
         Center(child: item.icon),
         const SizedBox(height: 12),
         Text(
@@ -276,6 +281,13 @@ class _PurchaseSheetState extends State<_PurchaseSheet> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // Un paso atrás: de la cuenta de la puerta parental al resumen.
+        Align(
+          alignment: Alignment.centerLeft,
+          child: SubtleBackArrow(
+            onPressed: () => setState(() => _phase = _Phase.summary),
+          ),
+        ),
         Center(
           child: Icon(Icons.family_restroom_rounded,
               size: 52, color: theme.colorScheme.primary),

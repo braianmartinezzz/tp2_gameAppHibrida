@@ -151,7 +151,7 @@ class ChaseHorde {
   static const double maxLooming = 2.4;
 
   /// Alto de un zombi en la línea del corredor sin el factor de cercanía.
-  static const double baseHeight = 60;
+  static const double baseHeight = 66;
 
   /// Posición lateral (-1..1 del corredor) de cada zombi, fila por fila. La
   /// fila 0 es la de adelante (la que primero alcanza al corredor).
@@ -182,14 +182,64 @@ class ChaseHorde {
     Color(0xFF23262C),
   ];
 
+  /// Variación máxima de altura de un zombi individual (en [_drawZombie] cada
+  /// uno mide entre 0.92 y 1.08 de la altura de la fila).
+  static const double maxHeightVariance = 1.08;
+
+  /// Separación (px) entre las cabezas de la horda y los pies del corredor
+  /// cuando la horda está en [dangerGap]: mientras siga vivo no se le monta
+  /// encima.
+  static const double clearanceAtDanger = 4;
+
+  /// Cuánto del zombi de adelante asoma por el borde inferior cuando la horda
+  /// va lejos (fracción de su altura). Antes 0.5: con la horda lejos casi no
+  /// se veía.
+  static const double farPeek = 0.8;
+
+  /// Separación entre filas, en alturas de zombi. Más chica = las filas de
+  /// atrás también asoman por detrás de la primera y la horda se ve más
+  /// numerosa (antes 0.42: solo se veía una fila).
+  static const double rowSpacing = 0.36;
+
   /// Y de pantalla del frente de la horda (los pies de la fila de adelante)
   /// para una distancia [g] dada. Con `g == 0` coincide con los pies del
   /// corredor: esa es la "línea de Game Over".
+  ///
+  /// Es la medida **lógica**; el dibujo usa [drawFrontFeetY], que evita que
+  /// los zombis (más altos que el corredor al acercarse) le tapen el cuerpo.
   double frontFeetY(Perspective p, double playerFeetY, [double? g]) {
     final gg = (g ?? gap).clamp(0.0, maxGap).toDouble();
     final h = zombieHeight(p, playerFeetY, gg);
     final farFeetY = p.height + h * 0.5;
     return playerFeetY + (farFeetY - playerFeetY) * gg;
+  }
+
+  /// Y de los pies de la fila de adelante para **dibujar**.
+  ///
+  /// Con [frontFeetY] los pies de la horda se acercan a los del corredor, pero
+  /// el zombi de adelante mide casi el doble que él cuando está cerca (el
+  /// "looming"), así que sus cabezas pasaban por encima de los pies del
+  /// jugador mucho antes del Game Over: con 3-4 vidas, tras un par de
+  /// tropiezos, se le superponían al cuerpo.
+  ///
+  /// Acá se mueve el **tope** de la horda (la cabeza más alta) en vez de los
+  /// pies: lejos asoma buena parte del zombi ([farPeek]) y, en [dangerGap],
+  /// queda [clearanceAtDanger] px por debajo de los pies del corredor. De ahí
+  /// sigue acercándose en línea recta, así que solo toca los pies del corredor
+  /// (y se le sube un poco) cuando está por alcanzarlo, a punto de terminar la
+  /// partida.
+  double drawFrontFeetY(Perspective p, double playerFeetY, [double? g]) {
+    final gg = (g ?? gap).clamp(0.0, maxGap).toDouble();
+    final h = zombieHeight(p, playerFeetY, gg);
+    final hFar = zombieHeight(p, playerFeetY, maxGap);
+
+    final dangerTop = playerFeetY + clearanceAtDanger;
+    // Pantallas muy bajas: que el tope lejano siempre quede más abajo que el
+    // de peligro, para que la horda no se "dé vuelta".
+    final farTop = max(p.height - hFar * farPeek, dangerTop + 24.0);
+    final slope = (farTop - dangerTop) / (maxGap - dangerGap);
+    final top = dangerTop + (gg - dangerGap) * slope;
+    return top + h * maxHeightVariance;
   }
 
   /// Alto de un zombi de la fila de adelante: crece al acercarse.
@@ -206,7 +256,7 @@ class ChaseHorde {
 
     final g = gap.clamp(0.0, maxGap).toDouble();
     final h = zombieHeight(p, playerFeetY, g);
-    final frontY = frontFeetY(p, playerFeetY, g);
+    final frontY = drawFrontFeetY(p, playerFeetY, g);
 
     // Niebla de la zona de Game Over: oscurece el borde inferior y pulsa
     // cuando la horda está encima.
@@ -230,7 +280,7 @@ class ChaseHorde {
     // Filas de atrás hacia adelante en pantalla: las de abajo están más cerca
     // de la cámara y tapan a las de arriba.
     for (var row = 0; row < _rows.length; row++) {
-      final feetY = frontY + row * h * 0.42;
+      final feetY = frontY + row * h * rowSpacing;
       final rowHeight = h * (1 + 0.08 * row);
       if (feetY - rowHeight > p.height) continue;
 
@@ -271,6 +321,7 @@ class ChaseHorde {
     required int index,
   }) {
     final seed = row * 7 + index;
+    // 0.92..1.08 (tope: [maxHeightVariance]).
     h = h * (0.92 + 0.16 * _unit(seed * 3 + 1));
 
     final style = (seed * 5 + index) % 4;

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../audio/game_sfx.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+import 'back_arrow.dart';
 import 'rewards_modal.dart';
 
 /// Resumen de la partida terminada (Fase 4): puntaje final, récord con su
@@ -22,6 +23,7 @@ class GameOverOverlay extends StatelessWidget {
     required this.onRestart,
     this.onRevive,
     this.onReviveWithDiamonds,
+    this.onMenu,
   });
 
   final GameState gameState;
@@ -37,6 +39,10 @@ class GameOverOverlay extends StatelessWidget {
   /// Camino de reinicio. En la app real pasa por el anuncio simulado (mismo
   /// requisito que la botonera externa); en los tests es un contador.
   final VoidCallback onRestart;
+
+  /// Vuelve a la pantalla de inicio (flecha discreta sobre el banner). Si es
+  /// null (no se llegó desde el menú) la flecha no aparece.
+  final VoidCallback? onMenu;
 
   @override
   Widget build(BuildContext context) {
@@ -78,7 +84,21 @@ class GameOverOverlay extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _Banner(newRecord: newRecord),
+                Stack(
+                  children: [
+                    _Banner(newRecord: newRecord),
+                    if (onMenu != null)
+                      Positioned(
+                        left: 8,
+                        top: 8,
+                        child: SubtleBackArrow(
+                          onPressed: onMenu,
+                          color: Colors.white,
+                          semanticLabel: 'Volver al menú',
+                        ),
+                      ),
+                  ],
+                ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
                   child: Column(

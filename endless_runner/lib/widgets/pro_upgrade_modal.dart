@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../audio/game_sfx.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+import 'back_arrow.dart';
 import 'purchase_flow.dart';
 
 /// Menú "Mejorar a Pro": lista los beneficios, muestra el precio y simula el
@@ -53,6 +54,10 @@ class _AlreadyPro extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: SubtleBackArrow(),
+            ),
             const Center(child: _Crown()),
             const SizedBox(height: 12),
             Text(

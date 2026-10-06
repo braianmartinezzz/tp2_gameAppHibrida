@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../audio/game_sfx.dart';
+import 'back_arrow.dart';
 
 /// Estilo 8 bits de la pantalla de inicio y sus diálogos: paneles con las
 /// esquinas "escalonadas", borde oscuro, luz arriba y la fuente Press Start 2P
@@ -239,22 +240,16 @@ Future<void> showPixelDialog(
               children: [
                 Row(
                   children: [
+                    // Flecha discreta para volver (reemplaza a la X).
+                    SubtleBackArrow(
+                      color: PixelStyle.cream,
+                      onPressed: () => Navigator.of(ctx).pop(),
+                    ),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: Text(
                         title,
                         style: PixelStyle.text(15, color: PixelStyle.plankTop),
-                      ),
-                    ),
-                    PixelButton(
-                      semanticLabel: 'Cerrar',
-                      sfx: Sfx.back,
-                      onTap: () => Navigator.of(ctx).pop(),
-                      padding: const EdgeInsets.all(6),
-                      pixel: 2,
-                      child: const Icon(
-                        Icons.close_rounded,
-                        size: 18,
-                        color: PixelStyle.cream,
                       ),
                     ),
                   ],

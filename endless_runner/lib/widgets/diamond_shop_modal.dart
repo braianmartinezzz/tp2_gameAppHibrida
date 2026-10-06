@@ -4,6 +4,7 @@ import '../audio/game_sfx.dart';
 import '../state/game_state.dart';
 import '../state/rewards.dart';
 import '../theme/app_theme.dart';
+import 'back_arrow.dart';
 import 'purchase_flow.dart';
 
 /// Monetización simulada con packs, precio ficticio y CTA de compra.
@@ -53,6 +54,8 @@ void showDiamondShopModal(BuildContext context, GameState gameState) {
             children: [
               Row(
                 children: [
+                  const SubtleBackArrow(),
+                  const SizedBox(width: 8),
                   Container(
                     width: 42,
                     height: 42,

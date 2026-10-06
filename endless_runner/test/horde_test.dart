@@ -146,6 +146,49 @@ void main() {
       expect(mid, lessThan(far));
       expect(line, closeTo(feet, 1e-9), reason: 'la línea de Game Over');
     });
+
+    // Cabeza más alta de la fila de adelante tal como se dibuja.
+    double drawnTop(double g) =>
+        horde.drawFrontFeetY(_p, feet, g) -
+        horde.zombieHeight(_p, feet, g) * ChaseHorde.maxHeightVariance;
+
+    test('mientras el corredor sigue vivo la horda no se le superpone', () {
+      // Desde lejos hasta la zona de peligro (donde caen los tropiezos de
+      // quien tiene 3-4 vidas): las cabezas quedan por debajo de sus pies.
+      for (var i = 0; i <= 75; i++) {
+        final g = ChaseHorde.maxGap - i * 0.01;
+        expect(drawnTop(g), greaterThanOrEqualTo(feet),
+            reason: 'gap ${g.toStringAsFixed(2)}');
+      }
+    });
+
+    test('la horda sigue acercándose: el tope sube al bajar el gap', () {
+      var last = drawnTop(ChaseHorde.maxGap);
+      for (var i = 1; i <= 100; i++) {
+        final top = drawnTop(ChaseHorde.maxGap - i * 0.01);
+        expect(top, lessThan(last));
+        last = top;
+      }
+    });
+
+    test('al alcanzarlo (gap 0) las cabezas llegan a sus pies', () {
+      expect(drawnTop(0), lessThan(feet));
+    });
+
+    test('lejos solo asoman las cabezas por el borde inferior', () {
+      final top = drawnTop(ChaseHorde.maxGap);
+      expect(top, lessThan(_p.height));
+      expect(top, greaterThan(_p.height * 0.9));
+    });
+
+    test('la horda se ve en todo el recorrido (no queda tapada abajo)', () {
+      // Banda visible = del tope de las cabezas al borde inferior.
+      for (var i = 0; i <= 75; i++) {
+        final g = ChaseHorde.maxGap - i * 0.01;
+        expect(_p.height - drawnTop(g), greaterThanOrEqualTo(40),
+            reason: 'gap ${g.toStringAsFixed(2)}');
+      }
+    });
   });
 
   group('RunnerGame con horda', () {

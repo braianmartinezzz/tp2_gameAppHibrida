@@ -265,6 +265,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                           onRestart: _restartAfterAd,
                                           onRevive: _reviveWithAd,
                           onReviveWithDiamonds: _reviveWithDiamonds,
+                                          onMenu: Navigator.of(context).canPop()
+                                              ? _backToMenu
+                                              : null,
                                         )
                                       : const SizedBox.shrink(
                                           key: ValueKey('alive'),

@@ -487,92 +487,182 @@ class ObstacleComponent extends DepthComponent {
     );
   }
 
-  /// Auto abandonado visto desde atrás: carrocería oxidada, luneta rota,
-  /// ruedas, luces traseras apagadas y una puerta del baúl entreabierta.
+  /// Auto abandonado **atravesado** en la ruta, visto de costado. Ocupa dos
+  /// carriles, o sea que su caja mide ~3:1: una trasera dibujada en ese
+  /// rectángulo salía achatada y estirada, pero un auto de perfil mide
+  /// justamente 3:1. De paso explica por qué bloquea dos carriles.
+  ///
+  /// Mira hacia afuera de la ruta: el del carril izquierdo apunta a la
+  /// izquierda y el del derecho, a la derecha.
   void _drawCar(Canvas canvas, double w, double h) {
     final a = alpha;
-    final body = const Color(0xFF6B7A86);
-    final dark = Color.lerp(body, Colors.black, 0.55)!;
+    const bodyC = Color(0xFF6B7A86);
+    const glassC = Color(0xFF1B2A33);
+    final light = Color.lerp(bodyC, Colors.white, 0.22)!;
+    final dark = Color.lerp(bodyC, Colors.black, 0.55)!;
+    final line = max(1.0, h * 0.028);
 
-    // Ruedas (asoman debajo de la carrocería).
-    final wheelW = w * 0.14;
-    final wheelH = h * 0.26;
-    for (final x in [w * 0.08, w * 0.78]) {
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(x, h - wheelH, wheelW, wheelH),
-          Radius.circular(wheelW * 0.3),
-        ),
-        Paint()..color = _ink.withValues(alpha: a),
-      );
+    canvas.save();
+    if (lane < 0) {
+      canvas.translate(w, 0);
+      canvas.scale(-1, 1); // espejo: el frente queda a la izquierda
     }
 
-    // Techo + cabina (trapecio) y baúl (rectángulo ancho).
-    final cabin = Path()
-      ..moveTo(w * 0.20, h * 0.46)
-      ..lineTo(w * 0.28, h * 0.04)
-      ..lineTo(w * 0.72, h * 0.04)
-      ..lineTo(w * 0.80, h * 0.46)
+    // Ruedas: centro a la altura del radio, apoyadas en el piso (h).
+    final r = h * 0.19;
+    final wy = h - r;
+    final rearX = w * 0.21;
+    final frontX = w * 0.77;
+
+    // Silueta del sedán (frente a la derecha).
+    final shell = Path()
+      ..moveTo(w * 0.02, h * 0.80)
+      ..lineTo(w * 0.015, h * 0.52)
+      ..quadraticBezierTo(w * 0.015, h * 0.45, w * 0.07, h * 0.44)
+      ..lineTo(w * 0.23, h * 0.42)
+      ..lineTo(w * 0.31, h * 0.10)
+      ..quadraticBezierTo(w * 0.32, h * 0.07, w * 0.36, h * 0.07)
+      ..lineTo(w * 0.58, h * 0.07)
+      ..quadraticBezierTo(w * 0.62, h * 0.07, w * 0.65, h * 0.11)
+      ..lineTo(w * 0.74, h * 0.42)
+      ..lineTo(w * 0.93, h * 0.47)
+      ..quadraticBezierTo(w * 0.985, h * 0.50, w * 0.985, h * 0.58)
+      ..lineTo(w * 0.985, h * 0.80)
       ..close();
-    final trunk = RRect.fromRectAndRadius(
-      Rect.fromLTWH(0, h * 0.42, w, h * 0.46),
-      Radius.circular(max(1.0, w * 0.03)),
-    );
-    canvas.drawPath(cabin, Paint()..color = body.withValues(alpha: a));
-    canvas.drawRRect(
-      trunk,
+
+    // Carrocería con degradé vertical (luz arriba, sombra abajo).
+    canvas.drawPath(
+      shell,
       Paint()
         ..shader = LinearGradient(
           colors: [
-            Color.lerp(body, Colors.white, 0.15)!.withValues(alpha: a),
+            light.withValues(alpha: a),
+            bodyC.withValues(alpha: a),
             dark.withValues(alpha: a),
           ],
+          stops: const [0.0, 0.5, 1.0],
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-        ).createShader(trunk.outerRect),
+        ).createShader(Rect.fromLTWH(0, 0, w, h)),
     );
 
-    // Luneta trasera con grieta.
-    final glass = Path()
-      ..moveTo(w * 0.25, h * 0.40)
-      ..lineTo(w * 0.31, h * 0.11)
-      ..lineTo(w * 0.69, h * 0.11)
-      ..lineTo(w * 0.75, h * 0.40)
+    // Pasarruedas oscuros (recortados a la carrocería).
+    canvas.save();
+    canvas.clipPath(shell);
+    for (final x in [rearX, frontX]) {
+      canvas.drawCircle(
+        Offset(x, wy),
+        r * 1.28,
+        Paint()..color = _ink.withValues(alpha: 0.85 * a),
+      );
+    }
+    canvas.restore();
+
+    // Paragolpes.
+    final bumper = Paint()..color = dark.withValues(alpha: a);
+    canvas.drawRect(Rect.fromLTWH(0, h * 0.70, w * 0.07, h * 0.10), bumper);
+    canvas.drawRect(
+        Rect.fromLTWH(w * 0.93, h * 0.70, w * 0.07, h * 0.10), bumper);
+
+    // Vidrios: trasero (con grieta) y delantero.
+    final rearGlass = Path()
+      ..moveTo(w * 0.27, h * 0.40)
+      ..lineTo(w * 0.335, h * 0.15)
+      ..lineTo(w * 0.425, h * 0.15)
+      ..lineTo(w * 0.425, h * 0.40)
       ..close();
-    canvas.drawPath(glass, Paint()..color = const Color(0xFF1B2A33).withValues(alpha: 0.9 * a));
+    final frontGlass = Path()
+      ..moveTo(w * 0.465, h * 0.40)
+      ..lineTo(w * 0.465, h * 0.15)
+      ..lineTo(w * 0.60, h * 0.15)
+      ..lineTo(w * 0.70, h * 0.40)
+      ..close();
+    final glassPaint = Paint()..color = glassC.withValues(alpha: 0.92 * a);
+    canvas.drawPath(rearGlass, glassPaint);
+    canvas.drawPath(frontGlass, glassPaint);
+    final shine = Paint()
+      ..color = const Color(0xFFCFE3EA).withValues(alpha: 0.35 * a)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = max(0.8, h * 0.03);
+    canvas.drawLine(Offset(w * 0.50, h * 0.37), Offset(w * 0.56, h * 0.18), shine);
     canvas.drawPath(
       Path()
-        ..moveTo(w * 0.50, h * 0.11)
-        ..lineTo(w * 0.46, h * 0.26)
-        ..lineTo(w * 0.54, h * 0.34),
-      Paint()
-        ..color = const Color(0xFFCFE3EA).withValues(alpha: 0.7 * a)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = max(0.8, w * 0.008),
+        ..moveTo(w * 0.38, h * 0.15)
+        ..lineTo(w * 0.35, h * 0.26)
+        ..lineTo(w * 0.40, h * 0.31)
+        ..lineTo(w * 0.36, h * 0.40),
+      shine..color = const Color(0xFFCFE3EA).withValues(alpha: 0.7 * a),
     );
 
-    // Luces traseras (una rota), patente y óxido.
-    final lightH = h * 0.12;
-    canvas.drawRect(
-      Rect.fromLTWH(w * 0.04, h * 0.52, w * 0.12, lightH),
-      Paint()..color = const Color(0xFFB3261E).withValues(alpha: a),
-    );
-    canvas.drawRect(
-      Rect.fromLTWH(w * 0.84, h * 0.52, w * 0.12, lightH),
-      Paint()..color = const Color(0xFF4A1512).withValues(alpha: a),
-    );
-    canvas.drawRect(
-      Rect.fromLTWH(w * 0.42, h * 0.60, w * 0.16, h * 0.10),
-      Paint()..color = const Color(0xFFD9D4BF).withValues(alpha: 0.9 * a),
-    );
-    _rust(canvas, Rect.fromLTWH(w * 0.55, h * 0.50, w * 0.28, h * 0.26), a);
-    canvas.drawRRect(
-      trunk,
+    // Puertas, cintura y manijas.
+    final seam = Paint()
+      ..color = _ink.withValues(alpha: 0.55 * a)
+      ..strokeWidth = line * 0.8;
+    canvas.drawLine(Offset(w * 0.445, h * 0.15), Offset(w * 0.445, h * 0.76), seam);
+    canvas.drawLine(Offset(w * 0.255, h * 0.44), Offset(w * 0.255, h * 0.76), seam);
+    canvas.drawLine(Offset(w * 0.69, h * 0.44), Offset(w * 0.69, h * 0.76), seam);
+    canvas.drawLine(
+      Offset(w * 0.05, h * 0.50),
+      Offset(w * 0.95, h * 0.50),
       Paint()
-        ..color = _ink.withValues(alpha: 0.6 * a)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2,
+        ..color = light.withValues(alpha: 0.35 * a)
+        ..strokeWidth = line * 0.8,
     );
+    final handle = Paint()..color = light.withValues(alpha: 0.8 * a);
+    canvas.drawRect(Rect.fromLTWH(w * 0.395, h * 0.53, w * 0.035, h * 0.04), handle);
+    canvas.drawRect(Rect.fromLTWH(w * 0.635, h * 0.53, w * 0.035, h * 0.04), handle);
+
+    // Luces: trasera apagada y delantera rota.
+    canvas.drawRect(
+      Rect.fromLTWH(w * 0.012, h * 0.52, w * 0.04, h * 0.07),
+      Paint()..color = const Color(0xFF7A1C17).withValues(alpha: a),
+    );
+    canvas.drawRect(
+      Rect.fromLTWH(w * 0.945, h * 0.53, w * 0.04, h * 0.06),
+      Paint()..color = const Color(0xFFB8B49A).withValues(alpha: 0.9 * a),
+    );
+
+    // Óxido en puerta, baúl y capó.
+    _rust(canvas, Rect.fromLTWH(w * 0.46, h * 0.52, w * 0.20, h * 0.24), a);
+    _rust(canvas, Rect.fromLTWH(w * 0.06, h * 0.50, w * 0.14, h * 0.18), a,
+        opacity: 0.28);
+    _rust(canvas, Rect.fromLTWH(w * 0.78, h * 0.46, w * 0.14, h * 0.10), a,
+        opacity: 0.30);
+
+    // Contorno.
+    canvas.drawPath(
+      shell,
+      Paint()
+        ..color = _ink.withValues(alpha: 0.75 * a)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = line
+        ..strokeJoin = StrokeJoin.round,
+    );
+
+    // Ruedas. La trasera está pinchada (aplastada) y se le ve la llanta.
+    void wheel(double x, {bool flat = false}) {
+      final ry = flat ? r * 0.78 : r;
+      final cy = h - ry;
+      canvas.drawOval(
+        Rect.fromCenter(center: Offset(x, cy), width: r * 2, height: ry * 2),
+        Paint()..color = _ink.withValues(alpha: a),
+      );
+      canvas.drawOval(
+        Rect.fromCenter(
+            center: Offset(x, cy), width: r * 1.1, height: ry * 1.1),
+        Paint()..color = const Color(0xFF8C8A84).withValues(alpha: a),
+      );
+      canvas.drawCircle(
+        Offset(x, cy),
+        r * 0.24,
+        Paint()..color = const Color(0xFF3A3834).withValues(alpha: a),
+      );
+    }
+
+    wheel(rearX, flat: true);
+    wheel(frontX);
+
+    canvas.restore();
   }
 
   // --- Colisión ---------------------------------------------------------------

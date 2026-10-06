@@ -7,6 +7,7 @@ import '../audio/game_sfx.dart';
 import '../game/runner_game.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+import 'back_arrow.dart';
 
 /// Overlay de pausa: fondo semitransparente con desenfoque, tarjeta con las
 /// acciones y el ajuste de sensibilidad de los gestos.
@@ -180,7 +181,21 @@ class _PauseCard extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const _Header(),
+            Stack(
+              alignment: Alignment.centerLeft,
+              children: [
+                const _Header(),
+                if (onMenu != null)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8),
+                    child: SubtleBackArrow(
+                      onPressed: onMenu,
+                      color: Colors.white,
+                      semanticLabel: 'Volver al menú',
+                    ),
+                  ),
+              ],
+            ),
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
               child: Column(

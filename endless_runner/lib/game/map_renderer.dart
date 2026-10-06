@@ -367,10 +367,24 @@ class MapRenderer {
   static const double _dashPeriod = 0.5;
   static const double _dashLen = 0.3;
   static const double _dashZMin = 1.0;
-  static const double _dashZMax = 5.0;
+  static const double _dashZMax = 14.0;
+
+  /// Los divisores se desvanecen entre estas profundidades: nacen suaves cerca
+  /// del horizonte en vez de aparecer de golpe (y sin parpadeo sub-píxel).
+  static const double _dashFadeStart = 4.0;
+  static const double _dashFadeEnd = 13.0;
+
+  /// Líneas de borde: llegan casi hasta el punto de fuga, en tramos largos de
+  /// pintura gastada.
+  static const double _edgePeriod = 3.0;
+  static const double _edgeZMax = 40.0;
 
   /// Avance del patrón en z (misma unidad que las rayas y los props).
   double _dashPhase = 0;
+
+  /// Avance total en z: da identidad estable a cada tramo de pintura (el
+  /// desgaste de cada uno no cambia mientras se acerca).
+  double _dashTravel = 0;
 
   double _time = 0;
 
@@ -451,6 +465,7 @@ class MapRenderer {
 
     // El punteado de las divisorias corre en z con la misma velocidad.
     _dashPhase = _wrap(_dashPhase - dz, _dashPeriod);
+    _dashTravel += dz;
   }
 
   /// Paleta vigente: la del tema (fundida día/noche según [blend]), tintada
@@ -711,18 +726,7 @@ class MapRenderer {
     }
 
     // Líneas de borde del asfalto (más ancho que la ruta: van en ±1.14).
-    for (final lane in const [-1.0, 1.0]) {
-      _drawLaneSegment(
-        canvas,
-        p,
-        lane * (1 + 2 * roadExtraFrac),
-        zNear: _dashZMin,
-        zFar: 8.0,
-        widthBase: 4.5,
-        color: c.roadLine,
-        alpha: 0.9,
-      );
-    }
+    _drawEdgeLines(canvas, p, c);
     canvas.restore();
 
     // Loma al final de la ruta: la carretera se pierde detrás de una lomada
@@ -2329,22 +2333,103 @@ class MapRenderer {
   /// Manchones de la divisoria `lane` (±0.5): la fase avanza con el juego en
   /// coordenada de mundo y cada manchón se afila con la perspectiva.
   void _drawLaneDashes(Canvas canvas, Perspective p, double lane, _Palette c) {
-    for (var m = -1;; m++) {
-      final zNear = _dashZMin + _dashPhase + m * _dashPeriod;
-      if (zNear > _dashZMax) break;
-      final zFar = zNear + _dashLen;
-      if (zFar <= _dashZMin) continue; // todavía no entró en pantalla
+    // Amarillo de pintura vial; de noche se apaga hacia un tono arena.
+    final paint = Color.lerp(
+        const Color(0xFFE2B43C), const Color(0xFFC8B173), c.night)!;
+    final salt = lane > 0 ? 1 : 2;
+    final id0 = (_dashTravel / _dashPeriod).ceil();
+
+    void seg(double a, double b, double alpha) {
+      final zA = max(a, _dashZMin);
+      final zB = min(b, _dashZMax);
+      if (zB <= zA) return;
+      final fade = _fadeOut((zA + zB) * 0.5, _dashFadeStart, _dashFadeEnd);
+      if (fade <= 0.01) return;
       _drawLaneSegment(
         canvas,
         p,
         lane,
-        zNear: max(zNear, _dashZMin), // cortado en el borde inferior
-        zFar: min(zFar, _dashZMax),
-        widthBase: 6,
-        color: c.roadLine,
-        alpha: 0.95,
+        zNear: zA,
+        zFar: zB,
+        widthBase: 5.5,
+        color: paint,
+        alpha: alpha * fade,
       );
     }
+
+    for (var m = -1;; m++) {
+      final zNear = _dashZMin + _dashPhase + m * _dashPeriod;
+      if (zNear > _dashZMax) break;
+      if (zNear + _dashLen <= _dashZMin) continue; // todavía no entró
+      // Pintura gastada: cada manchón tiene su propio desgaste (estable).
+      final id = id0 + m;
+      final w1 = _hash01(id, salt);
+      final w2 = _hash01(id, salt + 10);
+      final w3 = _hash01(id, salt + 20);
+      final alpha = 0.55 + 0.40 * w1; // unos más descoloridos que otros
+      final len = _dashLen * (1.0 - 0.30 * w2); // algunos más cortos
+      if (w3 > 0.72) {
+        // Manchón con un bache de pintura saltada.
+        final hole = len * (0.35 + 0.30 * w1);
+        const hw = 0.035;
+        seg(zNear, zNear + hole, alpha);
+        seg(zNear + hole + hw, zNear + len, alpha * 0.85);
+      } else {
+        seg(zNear, zNear + len, alpha);
+      }
+    }
+  }
+
+  /// Bordes del asfalto: blanco sucio, en tramos largos con huecos y
+  /// descoloridos irregulares. Se extienden hasta casi el punto de fuga y se
+  /// desvanecen con la distancia, así la ruta converge de verdad en el
+  /// horizonte en vez de cortarse antes.
+  void _drawEdgeLines(Canvas canvas, Perspective p, _Palette c) {
+    final paint = Color.lerp(c.roadLine, const Color(0xFF8F8A78), 0.32)!;
+    final phase = _wrap(-_dashTravel, _edgePeriod);
+    final id0 = (_dashTravel / _edgePeriod).ceil();
+    final lane = 1 + 2 * roadExtraFrac;
+    for (final side in const [-1.0, 1.0]) {
+      final salt = side > 0 ? 3 : 4;
+      for (var m = -1;; m++) {
+        final zNear = _dashZMin + phase + m * _edgePeriod;
+        if (zNear > _edgeZMax) break;
+        final id = id0 + m;
+        final w1 = _hash01(id, salt);
+        final w2 = _hash01(id, salt + 10);
+        // Lejos el hueco sería ruido sub-píxel: sólo se marca de cerca.
+        final gap = zNear > 14.0
+            ? 0.0
+            : (w1 > 0.55 ? _edgePeriod * (0.06 + 0.22 * w1) : _edgePeriod * 0.03);
+        final zA = max(zNear, _dashZMin);
+        final zB = min(zNear + _edgePeriod - gap, _edgeZMax);
+        if (zB <= zA) continue;
+        final fade = _fadeOut((zA + zB) * 0.5, 6.0, _edgeZMax);
+        _drawLaneSegment(
+          canvas,
+          p,
+          side * lane,
+          zNear: zA,
+          zFar: zB,
+          widthBase: 4.0,
+          color: paint,
+          alpha: (0.50 + 0.35 * w2) * fade,
+        );
+      }
+    }
+  }
+
+  /// 1 → 0 entre [start] y [end] (suavizado).
+  static double _fadeOut(double z, double start, double end) {
+    final t = ((z - start) / (end - start)).clamp(0.0, 1.0).toDouble();
+    return 1.0 - t * t * (3.0 - 2.0 * t);
+  }
+
+  /// Hash determinista en [0, 1): el desgaste de cada tramo de pintura se
+  /// decide por su identidad y no cambia al acercarse.
+  static double _hash01(int n, int salt) {
+    final v = sin(n * 12.9898 + salt * 78.233) * 43758.5453;
+    return v - v.floorToDouble();
   }
 
   /// Segmento de línea de ruta entre dos profundidades, afilado por la

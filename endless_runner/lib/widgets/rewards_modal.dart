@@ -5,6 +5,7 @@ import '../state/game_state.dart';
 import '../state/rewards.dart';
 import '../theme/app_theme.dart';
 import 'ad_modal.dart';
+import 'back_arrow.dart';
 
 /// Pantalla de premios: desafíos diarios, hitos de puntaje y anuncio
 /// voluntario. Todo se ve y se cobra acá; la partida queda pausada debajo.
@@ -62,6 +63,8 @@ class _RewardsContentState extends State<_RewardsContent> {
           children: [
             Row(
               children: [
+                const SubtleBackArrow(),
+                const SizedBox(width: 8),
                 const Icon(Icons.card_giftcard_rounded,
                     color: AppColors.goldDeep, size: 30),
                 const SizedBox(width: 10),
@@ -273,9 +276,46 @@ class _ChallengeTile extends StatelessWidget {
                         style: FilledButton.styleFrom(
                           backgroundColor: AppColors.goldDeep,
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 8),
+                          minimumSize: const Size(0, 48),
                         ),
-                        child: Text('Reclamar +${def.reward}'),
+                        // Dos líneas a propósito ("Reclamar" y el premio con
+                        // su diamante) y FittedBox: si el texto no entra (caja
+                        // angosta o letra grande del sistema) se achica en
+                        // vez de partirse o desbordar el botón.
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Text(
+                                'Reclamar',
+                                maxLines: 1,
+                                softWrap: false,
+                                style: TextStyle(fontWeight: FontWeight.w800),
+                              ),
+                              const SizedBox(height: 2),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.diamond_rounded,
+                                      size: 14, color: Colors.white),
+                                  const SizedBox(width: 3),
+                                  Text(
+                                    '+${def.reward}',
+                                    maxLines: 1,
+                                    softWrap: false,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
                       )
                     : Center(child: _Reward(amount: def.reward)),
           ),
