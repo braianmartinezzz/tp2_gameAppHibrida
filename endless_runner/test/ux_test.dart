@@ -237,16 +237,23 @@ void main() {
       expect(find.text('¡Bien!'), findsOneWidget);
 
       // Pasos informativos: diamantes y corazones, power-ups, peligros.
+      // El `pump()` inmediato después de cada tap arranca el crossfade de
+      // 280 ms del AnimatedSwitcher (el `pump(400)` siguiente consume el
+      // tiempo antes del rebuild): sin él, al tocar todavía están las dos
+      // tarjetas (la saliente y la entrante) y el tap queda ambiguo.
       await tester.pump(const Duration(milliseconds: 1200));
       expect(find.text('Diamantes y corazones'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('tutorial-next')));
+      await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
       expect(find.text('Power-ups'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('tutorial-next')));
+      await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
       expect(find.text('Cuidado con el camino'), findsOneWidget);
       expect(find.text('¡Entendido!'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('tutorial-next')));
+      await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 
       // Cierre: "¡Listo!", y se recuerda que ya se vio.

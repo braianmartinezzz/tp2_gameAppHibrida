@@ -210,8 +210,11 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
   double _spawnCooldown = 0;
 
   // Zombis: primer zombi a los 3 s; después la cadencia sube con la dificultad.
-  double _zombieCooldown = _firstZombieDelay;
-  static const double _firstZombieDelay = 3.0;
+  double _zombieCooldown = firstZombieDelay;
+
+  /// Segundos hasta el primer zombi de la partida. Es pública para que los
+  /// tests puedan calcular el plazo en que todavía no debería haber ninguno.
+  static const double firstZombieDelay = 3.0;
 
   /// true cuando ya toca un zombi pero todavía hay un obstáculo muy fresco:
   /// el spawner de obstáculos se frena hasta que el zombi pueda nacer. Sin
@@ -1550,7 +1553,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     _zombies.clear();
     _clearTrucks();
     _truckCooldown = 6.0; // un respiro antes del próximo camión
-    _zombieCooldown = _firstZombieDelay;
+    _zombieCooldown = firstZombieDelay;
     _zombieDue = false;
     _sinceObstacleSpawn = 0;
     _sinceZombieSpawn = 0;
@@ -1585,7 +1588,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
       _clearTrucks();
       _truckCooldown = _firstTruckDelay;
       _trucksSpawned = 0;
-      _zombieCooldown = _firstZombieDelay;
+      _zombieCooldown = firstZombieDelay;
       _zombieDue = false;
       _zombiesSpawned = 0;
       _lastKinds.clear();

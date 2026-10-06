@@ -307,9 +307,13 @@ class _AdModalContentState extends State<_AdModalContent> {
           Icon(Icons.campaign_rounded,
               color: Theme.of(context).colorScheme.primary),
           const SizedBox(width: 8),
-          const Text(
-            'Anuncio simulado',
-            style: TextStyle(fontWeight: FontWeight.w900),
+          const Flexible(
+            child: Text(
+              'Anuncio simulado',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontWeight: FontWeight.w900),
+            ),
           ),
         ],
       ),

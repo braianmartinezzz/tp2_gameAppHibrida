@@ -129,12 +129,18 @@ class _SectionTitle extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.baseline,
         textBaseline: TextBaseline.alphabetic,
         children: [
-          Text(
-            title,
-            style: theme.textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.w800),
+          // Flexible: un título largo se corta con puntos en vez de empujar
+          // al "trailing" fuera de la ventana.
+          Flexible(
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w800),
+            ),
           ),
-          const Spacer(),
+          const SizedBox(width: 8),
           if (trailing != null)
             Text(
               trailing!,
@@ -251,8 +257,12 @@ class _ChallengeTile extends StatelessWidget {
                       Icon(Icons.check_circle_rounded,
                           color: AppColors.play, size: 20),
                       SizedBox(width: 4),
-                      Text('Cobrado',
-                          style: TextStyle(fontWeight: FontWeight.w800)),
+                      Flexible(
+                        child: Text('Cobrado',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontWeight: FontWeight.w800)),
+                      ),
                     ],
                   )
                 : complete

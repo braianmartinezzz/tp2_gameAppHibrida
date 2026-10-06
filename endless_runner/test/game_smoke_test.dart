@@ -46,6 +46,12 @@ void main() {
     await tester.pumpWidget(GameWidget(game: game));
     await tester.pump();
 
+    // El arte se carga en background (no bloquea el montaje, ver
+    // PlayerComponent.onLoad): acá se espera a que termine. Ese I/O corre en
+    // el event loop real, por lo que solo avanza dentro de `runAsync`.
+    await tester.runAsync(() => game.player.artReady);
+    await tester.pump();
+
     final player = game.player;
     expect(player.hasCustomArt, isTrue,
         reason: 'debería cargar el SVG del personaje adventurer');

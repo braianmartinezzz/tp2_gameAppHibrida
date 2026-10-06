@@ -164,9 +164,15 @@ void main() {
 
     // Cordón gastado: óxido oscuro contra concreto sucio. Se cuentan los
     // saltos de luminosidad entre muestras consecutivas del recorrido.
+    //
+    // El recorrido arranca en t = 0.4 (y no más cerca) para que la ventana
+    // cubra al menos cinco períodos de franja (seg = _dashPeriod / 2 = 0.25 en
+    // unidades de z): con una ventana más corta la cuenta depende de la fase
+    // con la que se dibuje el cordón y a veces se queda en 3 saltos, que es
+    // justo lo que este test quiere descartar.
     var saltos = 0;
     double? anterior;
-    for (var t = 0.5; t <= 0.85; t += 0.004) {
+    for (var t = 0.4; t <= 0.85; t += 0.004) {
       final y = p.yAtT(t).round();
       final x = (p.vanishX - half * laneMid * t).round();
       final l = luma(px, x, y).toDouble();

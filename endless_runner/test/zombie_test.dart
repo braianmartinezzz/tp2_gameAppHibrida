@@ -345,10 +345,17 @@ void main() {
       await tester.pumpWidget(GameWidget(game: game));
 
       var sawZombie = false;
+      // El primer zombi nace a los [RunnerGame.firstZombieDelay] segundos:
+      // antes de ese plazo la partida todavía no debería mostrar ninguno.
+      // El margen (75 % del plazo) absorbe que cada frame dure 16 ms exactos.
+      final sinZombis =
+          (RunnerGame.firstZombieDelay * 60 * 0.75).round();
       for (var i = 0; i < 900 && !sawZombie; i++) {
         await tester.pump(const Duration(milliseconds: 16));
-        if (i < 400) {
-          expect(game.zombies, isEmpty, reason: 'no hay zombis en los primeros ~6 s');
+        if (i < sinZombis) {
+          expect(game.zombies, isEmpty,
+              reason:
+                  'no hay zombis antes de los ${RunnerGame.firstZombieDelay} s');
         }
         sawZombie = game.zombies.isNotEmpty;
       }

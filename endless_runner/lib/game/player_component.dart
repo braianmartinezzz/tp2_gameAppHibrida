@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -180,8 +181,24 @@ class PlayerComponent extends PositionComponent {
 
   @override
   Future<void> onLoad() async {
-    await _loadCharacterArt();
+    // El arte NO bloquea el montaje: se arranca en background y mientras
+    // llega (o si falla) el corredor se dibuja con el cuerpo geométrico.
+    //
+    // Esperarlo acá traba toda la cola de montaje de Flame: un hijo que sigue
+    // cargando deja al padre bloqueado, así que nada de lo que venga después
+    // (cámara, obstáculos, monedas, camiones, zombis) llega a montarse y el
+    // juego queda corriendo con un árbol vacío. En los tests ese I/O además
+    // nunca termina (fake-async), lo que congelaba los juegos de punta a punta.
+    _artReady = _loadCharacterArt();
+    unawaited(_artReady);
   }
+
+  /// Última carga de arte arrancada (en curso o terminada). Permite que un
+  /// test espere a que el sprite deje de ser el de reemplazo sin depender del
+  /// detalle de implementación del `onLoad`.
+  Future<void> get artReady => _artReady ?? Future<void>.value();
+
+  Future<void>? _artReady;
 
   Future<void> _loadCharacterArt() async {
     try {

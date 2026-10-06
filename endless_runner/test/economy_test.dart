@@ -32,7 +32,14 @@ class _FakeStore extends SettingsStore {
 /// Completa un desafío sin importar de qué tipo sea.
 void _complete(GameState state, ChallengeDef c) {
   if (c.isMax) {
-    state.addScore(c.target);
+    // El juego suma de a un punto por frame (ver el acumulador de RunnerGame),
+    // nunca de un salto: un `addScore(c.target)` de una sola vez cruzaría
+    // hitos y desafío en la misma llamada y los dos avisos competirían por el
+    // único cartel de recompensa. Se avanza de a un punto, como en la partida
+    // real, para que cada evento se emita por su cuenta.
+    while (state.score.value < c.target) {
+      state.addScore(1);
+    }
   } else {
     state.recordEvent(c.metric, c.target);
   }

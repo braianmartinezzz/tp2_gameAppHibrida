@@ -341,10 +341,22 @@ class _SensitivityControl extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text('Menos', style: theme.textTheme.labelSmall),
-                Text(
-                  '${_label(value)} · desliz de $px px',
-                  style: theme.textTheme.labelMedium
-                      ?.copyWith(fontWeight: FontWeight.w800),
+                // Flexible + padding: el rótulo central (label grande) puede
+                // superar el ancho de la tarjeta de pausa; en vez de desbordar
+                // por la derecha se corta con puntos y los extremos conservan
+                // su separación.
+                Flexible(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    child: Text(
+                      '${_label(value)} · desliz de $px px',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.labelMedium
+                          ?.copyWith(fontWeight: FontWeight.w800),
+                    ),
+                  ),
                 ),
                 Text('Más', style: theme.textTheme.labelSmall),
               ],

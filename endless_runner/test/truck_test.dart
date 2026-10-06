@@ -293,6 +293,11 @@ void main() {
     final state = GameState();
     final game = _game(state);
     await tester.pumpWidget(GameWidget(game: game));
+    // El montaje puede dejar obstáculos recién agregados en la cola de Flame:
+    // si se saca la foto ahora no entran en `before` y más tarde aparecen
+    // como si hubieran nacido con el camión (cuando en realidad nacieron
+    // antes, sin camión). Se dejan pasar unos cuadros para que asienten.
+    await _frames(tester, 10);
     final before = game.children.whereType<ObstacleComponent>().toSet();
 
     game.spawnTruck(lane: 1, ramp: true, length: 0.9); // en el horizonte

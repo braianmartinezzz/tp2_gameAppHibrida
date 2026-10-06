@@ -102,6 +102,10 @@ void main() {
       await pumpStart(tester, state: state);
 
       await tester.tap(find.text('JUGAR'));
+      // La navegación tarda dos cuadros: el primero procesa el push del telón
+      // y el segundo ya construye HomeScreen. Un solo `pump(600)` da un único
+      // cuadro y todavía no aparece.
+      await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
 
       expect(find.byType(HomeScreen), findsOneWidget);

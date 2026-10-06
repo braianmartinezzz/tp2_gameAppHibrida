@@ -126,12 +126,18 @@ class GameOverOverlay extends StatelessWidget {
                               color: AppColors.gemDeep,
                             ),
                             const SizedBox(width: 6),
-                            Text(
-                              'Ganaste $runDiamonds diamantes',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodyMedium
-                                  ?.copyWith(fontWeight: FontWeight.w700),
+                            // Flexible: con muchos diamantes el texto no
+                            // desborda la pastilla, se corta con puntos.
+                            Flexible(
+                              child: Text(
+                                'Ganaste $runDiamonds diamantes',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium
+                                    ?.copyWith(fontWeight: FontWeight.w700),
+                              ),
                             ),
                           ],
                         ),

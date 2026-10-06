@@ -64,7 +64,17 @@ abstract class DepthComponent extends PositionComponent {
   double get depthScale => perspective.scaleAtT(t);
 
   /// 0..1: nace transparente en [spawnT] y se solidifica con la bruma.
-  double get alpha => ((t - spawnT) / fadeSpan).clamp(0.0, 1.0);
+  ///
+  /// El `t` sale de una ida y vuelta `t → y → t` con coma flotante, así que
+  /// al nacer el resultado puede ser un residuo del orden de 1e-16 en vez de
+  /// 0 exacto. Ese residuo no se ve, pero rompe el contrato de "nace con
+  /// alpha 0" (y hace pintar el primer frame a opacidad casi nula): se trunca
+  /// a 0 antes de usarlo.
+  double get alpha {
+    final value = (t - spawnT) / fadeSpan;
+    if (value < 1e-9) return 0;
+    return value.clamp(0.0, 1.0);
+  }
 
   /// Centro en X del carril a la profundidad actual.
   double get centerX => perspective.xAtT(lane, t);
