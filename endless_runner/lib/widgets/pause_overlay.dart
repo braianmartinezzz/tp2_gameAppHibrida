@@ -3,6 +3,7 @@ import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 
+import '../audio/game_sfx.dart';
 import '../game/runner_game.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
@@ -200,7 +201,7 @@ class _PauseCard extends StatelessWidget {
                     children: [
                       Expanded(
                         child: OutlinedButton.icon(
-                          onPressed: onRestart,
+                          onPressed: sfxTap(onRestart),
                           icon: const Icon(Icons.replay_rounded, size: 18),
                           label: const Text('Reiniciar'),
                         ),
@@ -208,7 +209,7 @@ class _PauseCard extends StatelessWidget {
                       const SizedBox(width: 10),
                       Expanded(
                         child: OutlinedButton.icon(
-                          onPressed: onShowTutorial,
+                          onPressed: sfxTap(onShowTutorial),
                           icon: const Icon(Icons.school_rounded, size: 18),
                           label: const Text('Tutorial'),
                         ),
@@ -220,7 +221,7 @@ class _PauseCard extends StatelessWidget {
                     SizedBox(
                       width: double.infinity,
                       child: TextButton.icon(
-                        onPressed: onMenu,
+                        onPressed: sfxTap(onMenu, sfx: Sfx.back),
                         icon: const Icon(Icons.home_rounded, size: 18),
                         label: const Text('Menú principal'),
                       ),
@@ -314,8 +315,8 @@ class _SensitivityControl extends StatelessWidget {
                   child: IgnorePointer(
                     ignoring: isDefault,
                     child: TextButton(
-                      onPressed: () => gameState
-                          .setSwipeSensitivity(GameState.defaultSensitivity),
+                      onPressed: sfxTap(() => gameState
+                          .setSwipeSensitivity(GameState.defaultSensitivity)),
                       style: TextButton.styleFrom(
                         minimumSize: const Size(0, 28),
                         padding: const EdgeInsets.symmetric(horizontal: 10),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../audio/game_sfx.dart';
 import '../game/runner_game.dart';
 import '../state/game_state.dart';
 import 'pixel_ui.dart';
@@ -75,6 +76,7 @@ class _FactoryResetConfirm extends StatelessWidget {
         const SizedBox(height: 10),
         PixelButton(
           semanticLabel: 'Cancelar',
+          sfx: Sfx.back,
           pixel: 2,
           padding: const EdgeInsets.symmetric(vertical: 12),
           onTap: () => Navigator.of(context).pop(),
@@ -234,6 +236,7 @@ class SettingsContent extends StatelessWidget {
                     padding: EdgeInsets.only(right: value ? 8 : 0),
                     child: PixelButton(
                       semanticLabel: 'Música $label',
+                      sfx: Sfx.toggle,
                       pixel: 2,
                       padding: const EdgeInsets.symmetric(vertical: 11),
                       fill: enabled == value
@@ -266,6 +269,53 @@ class SettingsContent extends StatelessWidget {
           style: PixelStyle.text(8, color: PixelStyle.creamDim, height: 1.6),
         ),
         const SizedBox(height: 20),
+        const _Label('EFECTOS DE SONIDO'),
+        ValueListenableBuilder<bool>(
+          valueListenable: gameState.sfxEnabled,
+          builder: (_, enabled, __) => Row(
+            children: [
+              for (final (value, label) in const [
+                (true, 'SÍ'),
+                (false, 'NO'),
+              ])
+                Expanded(
+                  child: Padding(
+                    padding: EdgeInsets.only(right: value ? 8 : 0),
+                    child: PixelButton(
+                      semanticLabel: 'Efectos de sonido $label',
+                      sfx: value ? Sfx.toggle : null,
+                      pixel: 2,
+                      padding: const EdgeInsets.symmetric(vertical: 11),
+                      fill: enabled == value
+                          ? const [PixelStyle.plankTop, PixelStyle.plankBottom]
+                          : const [PixelStyle.panel, PixelStyle.panelDeep],
+                      border: enabled == value
+                          ? PixelStyle.plankBorder
+                          : PixelStyle.ink,
+                      onTap: () => gameState.setSfxEnabled(value),
+                      child: Center(
+                        child: Text(
+                          label,
+                          style: PixelStyle.text(
+                            9,
+                            color: enabled == value
+                                ? PixelStyle.plankInk
+                                : PixelStyle.cream,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Botones, diamantes, golpes y los pasos del corredor.',
+          style: PixelStyle.text(8, color: PixelStyle.creamDim, height: 1.6),
+        ),
+        const SizedBox(height: 20),
         const _Label('VIBRACIÓN'),
         ValueListenableBuilder<bool>(
           valueListenable: gameState.hapticsEnabled,
@@ -280,6 +330,7 @@ class SettingsContent extends StatelessWidget {
                     padding: EdgeInsets.only(right: value ? 8 : 0),
                     child: PixelButton(
                       semanticLabel: 'Vibración $label',
+                      sfx: Sfx.toggle,
                       pixel: 2,
                       padding: const EdgeInsets.symmetric(vertical: 11),
                       fill: enabled == value

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../audio/game_sfx.dart';
 import '../state/game_state.dart';
 import '../widgets/diamond_shop_modal.dart';
 import '../widgets/menu_dialogs.dart';
@@ -200,6 +201,7 @@ class _StartScreenState extends State<StartScreen>
                       border: PixelStyle.plankBorder,
                       edge: const Color(0xFFFFE27A),
                       padding: EdgeInsets.zero,
+                      sfx: Sfx.play,
                       onTap: _play,
                       child: Center(
                         child: Text(

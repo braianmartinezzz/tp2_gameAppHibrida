@@ -3,6 +3,7 @@ import 'package:flame/game.dart';
 import 'package:flame/events.dart';
 import 'package:flutter/material.dart';
 import '../audio/game_music.dart';
+import '../audio/game_sfx.dart';
 import '../haptics/game_haptics.dart';
 import '../state/game_state.dart';
 import '../state/rewards.dart';
@@ -95,6 +96,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
   /// Al ponerse `isPaused` los oyentes de [_syncMusic] cortan la música.
   void pauseGame() {
     if (!canPause) return;
+    GameSfx.instance.play(Sfx.pause);
     gameState.isPaused.value = true;
     gameState.save(); // la pausa es buen momento para persistir lo recolectado
     pauseEngine();
@@ -104,6 +106,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
   /// vuelven a poner la música desde donde se cortó.
   void resumeGame() {
     if (!gameState.isPaused.value) return;
+    GameSfx.instance.play(Sfx.resume);
     gameState.isPaused.value = false;
     resumeEngine();
   }
@@ -345,6 +348,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     _unlistenTheme();
     _unlistenMusic();
     music.dispose(); // vuelta al menú: la música se corta y se libera
+    GameSfx.instance.stopAll(); // y los efectos que estén sonando
     super.onRemove();
   }
 
@@ -393,11 +397,19 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     _syncPerspective();
   }
 
+  /// Pasos del corredor: bajitos, alternando pie izquierdo y derecho. Callan
+  /// con el juego en pausa o terminado.
+  void _onPlayerStep(int foot) {
+    if (gameState.isGameOver.value || gameState.isPaused.value) return;
+    GameSfx.instance.play(foot == 0 ? Sfx.stepA : Sfx.stepB);
+  }
+
   void _spawnPlayer() {
     _player = PlayerComponent(
       startPosition: Vector2(size.x / 2, size.y * 0.86),
       perspective: _perspective,
     );
+    _player.onStep = _onPlayerStep;
     _hasPlayer = true;
     add(_player);
   }
@@ -486,6 +498,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
 
     // Polvo al aterrizar: en este frame el jugador pasó del aire al suelo.
     if (_wasAirborne && !_player.isAirborne) {
+      if (!gameState.isGameOver.value) GameSfx.instance.play(Sfx.land);
       juice.landDust(
         Offset(_player.position.x, _player.groundFeetY - _player.groundHeight),
         blend: _themeBlend,
@@ -607,6 +620,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
         gameState.collectDiamond(coin.value);
         if (hordeEnabled) horde.relieve(coin.value);
         juice.coinPickup(_centerOf(coin), value: coin.value);
+        GameSfx.instance.play(coin.value >= 3 ? Sfx.coinBig : Sfx.coin);
         _removeCoin(coin);
       } else if (coin.offScreen) {
         _removeCoin(coin);
@@ -625,6 +639,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
       if (item.collidesWith(_player) && powerUps.apply(item.kind)) {
         gameState.recordEvent(ChallengeMetric.powerUps);
         juice.powerUpPickup(_centerOf(item), item.kind);
+        GameSfx.instance.play(Sfx.powerUp);
         _removePowerUp(item);
       }
     }
@@ -645,6 +660,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     if (leveledUp) {
       juice.flash(Juice.hitColor, 0.3, duration: 0.4);
       juice.addShake(3);
+      GameSfx.instance.play(Sfx.hordeAlert);
     }
 
     if (horde.caught) {
@@ -654,6 +670,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
       juice.death(Offset(_player.position.x, _player.position.y));
       // Vibración de muerte: la misma que el último choque (ver [_onCollision]).
       _haptic(HapticCue.death);
+      GameSfx.instance.play(Sfx.death);
       _deathTimer = _deathGrace;
     }
   }
@@ -1132,6 +1149,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     if (powerUps.absorbHit()) {
       juice.shieldAbsorb(at);
       _haptic(HapticCue.shield);
+      GameSfx.instance.play(Sfx.shield);
       return;
     }
 
@@ -1144,6 +1162,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
       // Vibración del choque: la misma sea cual sea el obstáculo (valla,
       // contenedor, auto, camión o zombi), porque los cues son por impacto.
       _haptic(HapticCue.hit);
+      GameSfx.instance.play(Sfx.hit);
       // Tropezar deja a la horda más cerca (el escudo no: ya absorbió).
       if (hordeEnabled) horde.stumble();
     } else {
@@ -1153,6 +1172,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
       juice.death(at);
       // La muerte vibra más largo: cierra la corrida por fuera de la pantalla.
       _haptic(HapticCue.death);
+      GameSfx.instance.play(Sfx.death);
       _deathTimer = _deathGrace;
       // El motor NO se pausa acá: lo hace update() cuando el juice de la
       // muerte termina de disiparse (ver [_deathGrace]).
@@ -1376,15 +1396,20 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     // Eje dominante: el más largo manda; en empate decide el horizontal.
     if (!doneY || (doneX && _swipeX.abs() >= _swipeY.abs())) {
       final dir = _swipeX > 0 ? 1 : -1;
+      final laneBefore = _player.lane;
       _player.moveLane(dir);
+      // Solo suena si de verdad cambió de carril (en el borde no hay nada).
+      if (_player.lane != laneBefore) GameSfx.instance.play(Sfx.lane);
       onAction?.call(dir > 0 ? RunnerAction.moveRight : RunnerAction.moveLeft);
     } else if (_swipeY < 0) {
       if (_player.jump()) {
+        GameSfx.instance.play(Sfx.jump);
         if (!tutorialActive) gameState.recordEvent(ChallengeMetric.jumps);
         onAction?.call(RunnerAction.jump);
       }
     } else {
       if (_player.roll()) {
+        GameSfx.instance.play(Sfx.roll);
         if (!tutorialActive) gameState.recordEvent(ChallengeMetric.rolls);
         onAction?.call(RunnerAction.roll);
       }
@@ -1543,6 +1568,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
   /// despejado y un respiro de invulnerabilidad. Una vez por partida.
   void reviveRun() {
     if (!gameState.revive()) return;
+    GameSfx.instance.play(Sfx.revive);
     for (final obstacle in _obstacles) {
       obstacle.removeFromParent();
     }

@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
+import '../audio/game_sfx.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import 'ad_video_cache.dart';
@@ -358,7 +359,10 @@ class _AdModalContentState extends State<_AdModalContent> {
         SizedBox(
           width: double.infinity,
           child: FilledButton(
-            onPressed: canClose ? () => Navigator.of(context).pop(true) : null,
+            onPressed: sfxTap(
+              canClose ? () => Navigator.of(context).pop(true) : null,
+              sfx: Sfx.back,
+            ),
             child: Text(
               canClose
                   ? widget.closeLabel

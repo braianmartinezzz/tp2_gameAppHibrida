@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../audio/game_sfx.dart';
 import '../state/game_state.dart';
 import '../state/rewards.dart';
 import '../theme/app_theme.dart';
@@ -8,6 +9,7 @@ import 'ad_modal.dart';
 /// Pantalla de premios: desafíos diarios, hitos de puntaje y anuncio
 /// voluntario. Todo se ve y se cobra acá; la partida queda pausada debajo.
 Future<void> showRewardsModal(BuildContext context, GameState gameState) {
+  GameSfx.instance.play(Sfx.open);
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -267,7 +269,7 @@ class _ChallengeTile extends StatelessWidget {
                   )
                 : complete
                     ? FilledButton(
-                        onPressed: onClaim,
+                        onPressed: sfxTap(onClaim, sfx: Sfx.reward),
                         style: FilledButton.styleFrom(
                           backgroundColor: AppColors.goldDeep,
                           foregroundColor: Colors.white,
@@ -397,7 +399,7 @@ class _AdCard extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: canWatch ? onWatch : null,
+              onPressed: sfxTap(canWatch ? onWatch : null),
               icon: const Icon(Icons.play_circle_rounded),
               label: const Text('Ver anuncio'),
             ),

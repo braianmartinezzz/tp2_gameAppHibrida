@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 
+import '../audio/game_sfx.dart';
 import '../theme/app_theme.dart';
 
 /// Qué se está comprando en [showPurchaseFlow].
@@ -95,6 +96,7 @@ Future<bool> showPurchaseFlow(
   Random? random,
   Duration processingDelay = const Duration(milliseconds: 1400),
 }) async {
+  GameSfx.instance.play(Sfx.open);
   final paid = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
@@ -170,6 +172,7 @@ class _PurchaseSheetState extends State<_PurchaseSheet> {
     if (!mounted) return;
     if (_rejectNext) {
       _rejectNext = false; // el reintento sale bien
+      GameSfx.instance.play(Sfx.error);
       setState(() => _phase = _Phase.failed);
       return;
     }
@@ -177,6 +180,7 @@ class _PurchaseSheetState extends State<_PurchaseSheet> {
       _paid = true;
       item.onPaid();
     }
+    GameSfx.instance.play(Sfx.buy);
     setState(() => _phase = _Phase.done);
   }
 
@@ -229,7 +233,7 @@ class _PurchaseSheetState extends State<_PurchaseSheet> {
         const SizedBox(height: 8),
         FilledButton(
           key: const ValueKey('purchase-pay-button'),
-          onPressed: _openGate,
+          onPressed: sfxTap(_openGate),
           style: FilledButton.styleFrom(
             backgroundColor: item.accent,
             foregroundColor: item.onAccent,
@@ -243,7 +247,7 @@ class _PurchaseSheetState extends State<_PurchaseSheet> {
         const SizedBox(height: 6),
         TextButton(
           key: const ValueKey('purchase-cancel-button'),
-          onPressed: () => Navigator.of(context).pop(false),
+          onPressed: sfxTap(() => Navigator.of(context).pop(false), sfx: Sfx.back),
           child: const Text('Ahora no'),
         ),
         // Para la demo: muestra cómo se ve un pago rechazado.
@@ -319,7 +323,7 @@ class _PurchaseSheetState extends State<_PurchaseSheet> {
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: OutlinedButton(
                     key: ValueKey('gate-option-$option'),
-                    onPressed: () => _answer(option),
+                    onPressed: sfxTap(() => _answer(option)),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 14),
                     ),
@@ -336,7 +340,7 @@ class _PurchaseSheetState extends State<_PurchaseSheet> {
         const SizedBox(height: 8),
         TextButton(
           key: const ValueKey('purchase-gate-cancel'),
-          onPressed: () => Navigator.of(context).pop(false),
+          onPressed: sfxTap(() => Navigator.of(context).pop(false), sfx: Sfx.back),
           child: const Text('Cancelar'),
         ),
       ],
@@ -401,7 +405,7 @@ class _PurchaseSheetState extends State<_PurchaseSheet> {
         const SizedBox(height: 14),
         FilledButton(
           key: const ValueKey('purchase-done-button'),
-          onPressed: () => Navigator.of(context).pop(true),
+          onPressed: sfxTap(() => Navigator.of(context).pop(true)),
           style: FilledButton.styleFrom(
             backgroundColor: item.accent,
             foregroundColor: item.onAccent,
@@ -443,13 +447,13 @@ class _PurchaseSheetState extends State<_PurchaseSheet> {
         const SizedBox(height: 18),
         FilledButton(
           key: const ValueKey('purchase-retry-button'),
-          onPressed: _pay,
+          onPressed: sfxTap(_pay),
           child: const Text('Reintentar'),
         ),
         const SizedBox(height: 6),
         TextButton(
           key: const ValueKey('purchase-close-button'),
-          onPressed: () => Navigator.of(context).pop(false),
+          onPressed: sfxTap(() => Navigator.of(context).pop(false), sfx: Sfx.back),
           child: const Text('Cerrar'),
         ),
       ],

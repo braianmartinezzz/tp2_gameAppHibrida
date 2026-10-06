@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../audio/game_sfx.dart';
 import '../state/game_state.dart';
 import '../state/rewards.dart';
 import '../theme/app_theme.dart';
@@ -32,6 +34,7 @@ void showDiamondShopModal(BuildContext context, GameState gameState) {
     ),
   ];
 
+  GameSfx.instance.play(Sfx.open);
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
@@ -259,7 +262,7 @@ class _UpgradeTile extends StatelessWidget {
                     fontWeight: FontWeight.w900, color: AppColors.play))
           else
             FilledButton.icon(
-              onPressed: affordable ? onBuy : null,
+              onPressed: sfxTap(affordable ? onBuy : null, sfx: Sfx.buy),
               icon: const Icon(Icons.diamond_rounded, size: 16),
               label: Text('$cost'),
               style: FilledButton.styleFrom(
@@ -286,7 +289,7 @@ class _PackCard extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(22),
-        onTap: onBuy,
+        onTap: sfxTap(onBuy),
         child: Stack(
           clipBehavior: Clip.none,
           children: [
@@ -332,7 +335,7 @@ class _PackCard extends StatelessWidget {
                     ),
                   ),
                   FilledButton(
-                    onPressed: onBuy,
+                    onPressed: sfxTap(onBuy),
                     style: FilledButton.styleFrom(
                       backgroundColor: pack.accent,
                       foregroundColor: AppColors.ink,

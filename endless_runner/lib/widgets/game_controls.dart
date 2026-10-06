@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../audio/game_sfx.dart';
 import '../game/runner_game.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
@@ -69,7 +71,7 @@ class GameControls extends StatelessWidget {
                   label: 'Reiniciar',
                   color: AppColors.ctrlReset,
                   deep: AppColors.ctrlResetDeep,
-                  onPressed: () => _onRestart(context),
+                  onPressed: sfxCallback(() => _onRestart(context)),
                 ),
               ),
               Expanded(
@@ -96,7 +98,7 @@ class GameControls extends StatelessWidget {
                     },
                     color: AppColors.mode,
                     deep: AppColors.modeDeep,
-                    onPressed: gameState.cycleTheme,
+                    onPressed: sfxCallback(gameState.cycleTheme, sfx: Sfx.toggle),
                   ),
                 ),
               ),
@@ -136,6 +138,9 @@ class _CandyButton extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           PixelButton(
+            // Sin sonido propio: el que corresponde lo pone quien lo recibe
+            // (pausa/continuar suenan desde RunnerGame; el resto con sfxTap).
+            sfx: null,
             onTap: onPressed,
             semanticLabel: tooltip,
             padding: EdgeInsets.zero,

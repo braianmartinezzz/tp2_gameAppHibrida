@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../audio/game_sfx.dart';
 import '../game/runner_game.dart';
 import '../theme/app_theme.dart';
 
@@ -173,6 +174,7 @@ class _TutorialOverlayState extends State<TutorialOverlay>
 
   void _onAction(RunnerAction action) {
     if (_stepDone || _allDone || action != _steps[_index].expected) return;
+    GameSfx.instance.play(Sfx.success);
     setState(() => _stepDone = true);
     _timer = Timer(const Duration(milliseconds: 900), _advance);
   }
@@ -311,7 +313,7 @@ class _TutorialOverlayState extends State<TutorialOverlay>
             duration: const Duration(milliseconds: 200),
             opacity: _allDone ? 0 : 1,
             child: TextButton(
-              onPressed: _allDone ? null : _close,
+              onPressed: sfxTap(_allDone ? null : _close, sfx: Sfx.back),
               style: TextButton.styleFrom(
                 foregroundColor: Colors.white,
                 backgroundColor: const Color(0xFF140E0C).withValues(alpha: 0.55),
@@ -511,7 +513,7 @@ class _InfoCard extends StatelessWidget {
           const SizedBox(height: 4),
           FilledButton(
             key: const ValueKey('tutorial-next'),
-            onPressed: onNext,
+            onPressed: sfxTap(onNext),
             style: FilledButton.styleFrom(
               backgroundColor: AppColors.play,
               foregroundColor: Colors.white,

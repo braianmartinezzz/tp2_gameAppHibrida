@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../audio/game_sfx.dart';
+
 /// Estilo 8 bits de la pantalla de inicio y sus diálogos: paneles con las
 /// esquinas "escalonadas", borde oscuro, luz arriba y la fuente Press Start 2P
 /// (assets/fonts, licencia OFL). Todo se dibuja con formas, sin imágenes.
@@ -148,9 +150,13 @@ class PixelButton extends StatefulWidget {
     this.edge = PixelStyle.panelEdge,
     this.pixel = 3,
     this.padding = const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+    this.sfx = Sfx.click,
   });
 
   final VoidCallback onTap;
+
+  /// Sonido al tocar (`null` = silencioso, p. ej. si el callback ya suena solo).
+  final Sfx? sfx;
   final Widget child;
   final String? semanticLabel;
   final List<Color> fill;
@@ -180,7 +186,11 @@ class _PixelButtonState extends State<PixelButton> {
         onTapDown: (_) => _set(true),
         onTapUp: (_) => _set(false),
         onTapCancel: () => _set(false),
-        onTap: widget.onTap,
+        onTap: () {
+          final cue = widget.sfx;
+          if (cue != null) GameSfx.instance.play(cue);
+          widget.onTap();
+        },
         child: Transform.translate(
           offset: Offset(0, _down ? widget.pixel : 0),
           child: CustomPaint(
@@ -205,6 +215,7 @@ Future<void> showPixelDialog(
   required String title,
   required Widget body,
 }) {
+  GameSfx.instance.play(Sfx.open);
   return showDialog<void>(
     context: context,
     barrierColor: Colors.black.withValues(alpha: 0.68),
@@ -236,6 +247,7 @@ Future<void> showPixelDialog(
                     ),
                     PixelButton(
                       semanticLabel: 'Cerrar',
+                      sfx: Sfx.back,
                       onTap: () => Navigator.of(ctx).pop(),
                       padding: const EdgeInsets.all(6),
                       pixel: 2,

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../audio/game_sfx.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import 'purchase_flow.dart';
@@ -11,6 +12,7 @@ import 'purchase_flow.dart';
 /// es simulada: no hay cobro real.
 Future<void> showProUpgradeModal(BuildContext context, GameState gameState) {
   if (gameState.isPro) {
+    GameSfx.instance.play(Sfx.open);
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -70,7 +72,7 @@ class _AlreadyPro extends StatelessWidget {
             const SizedBox(height: 8),
             FilledButton(
               key: const ValueKey('pro-done-button'),
-              onPressed: () => Navigator.of(context).pop(),
+              onPressed: sfxTap(() => Navigator.of(context).pop(), sfx: Sfx.back),
               child: const Text('Cerrar'),
             ),
           ],

@@ -230,6 +230,10 @@ class PlayerComponent extends PositionComponent {
     }
   }
 
+  /// Se llama en cada paso de la carrera (`0` o `1`, un valor por pie). El
+  /// juego lo usa para el sonido de los pasos; el componente no sabe de audio.
+  void Function(int foot)? onStep;
+
   // --- Acciones -------------------------------------------------------------
 
   /// Mueve un carril hacia la izquierda (-1) o la derecha (+1).
@@ -336,7 +340,12 @@ class PlayerComponent extends PositionComponent {
     if (_landTimer > 0) _landTimer -= dt;
     // Las piernas solo corren con los pies en el suelo y a ritmo del mundo.
     if (!isAirborne && !isRolling) {
+      final before = _runPhase;
       _runPhase = (_runPhase + dt * _runFps * runRate) % _runFrames;
+      // Un paso por cada pie: al cruzar el cuadro 0 y el 4 del ciclo (cuando
+      // cambia la mitad del ciclo en la que está).
+      final half = (_runPhase / (_runFrames / 2)).floor();
+      if (half != (before / (_runFrames / 2)).floor()) onStep?.call(half);
     }
     // Inclinación al cambiar de carril: hacia donde va y suavizada.
     final wantLean = isRolling

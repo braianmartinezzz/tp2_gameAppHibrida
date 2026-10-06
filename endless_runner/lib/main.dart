@@ -1,6 +1,8 @@
+import 'dart:async' show unawaited;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'audio/game_sfx.dart';
 import 'screens/start_screen.dart';
 import 'state/game_state.dart';
 import 'state/settings_store.dart';
@@ -15,6 +17,10 @@ Future<void> main() async {
   // primer frame para que no haya parpadeos en usuarios que ya lo hicieron.
   final gameState = GameState(store: SettingsStore());
   await gameState.loadSettings();
+  // Pools de efectos de sonido listos antes del primer toque (sin frenar el
+  // arranque: no se espera).
+  GameSfx.instance.enabled = gameState.sfxEnabled.value;
+  unawaited(GameSfx.instance.preload());
 
   runApp(RunnerApp(gameState: gameState));
 }

@@ -11,6 +11,7 @@ dependencies:
     sdk: flutter
   flame: ^1.18.0
   flame_audio: ^2.12.0
+  audioplayers: ^6.0.0
   flutter_svg: ^2.0.10
   shared_preferences: ^2.3.0
   video_player: ^2.9.2
@@ -38,6 +39,7 @@ flutter:
     - assets/images/in_zombie_run_menu.png
     - assets/images/ic_zombie_run.png
     - assets/music/
+    - assets/audio/sfx/
     - assets/video/
 
   # Fuente pixel (SIL Open Font License, ver assets/fonts/OFL.txt) para los

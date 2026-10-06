@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 
+import '../audio/game_sfx.dart';
 import 'rewards.dart';
 import 'settings_store.dart';
 
@@ -26,7 +27,12 @@ class GameState {
         _clock = clock ?? DateTime.now,
         _random = random ?? Random() {
     _ensureToday();
+    // Los efectos de sonido son un interruptor global: GameSfx lo consulta
+    // en cada disparo, sin que cada botón tenga que conocer el GameState.
+    sfxEnabled.addListener(_syncSfx);
   }
+
+  void _syncSfx() => GameSfx.instance.enabled = sfxEnabled.value;
 
   final SettingsStore? _store;
   final DateTime Function() _clock;
@@ -102,6 +108,10 @@ class GameState {
   /// [GameMusic] suena o no: el interruptor corta al instante y se guarda con
   /// el resto del progreso.
   final ValueNotifier<bool> musicEnabled = ValueNotifier(true);
+
+  /// Efectos de sonido prendidos (Ajustes): botones, diamantes, golpes y los
+  /// sonidos del corredor. Es independiente de la música.
+  final ValueNotifier<bool> sfxEnabled = ValueNotifier(true);
 
   /// Vibración del teléfono al chocar prendida (Ajustes). Es el único que
   /// decide si [GameHaptics] vibra o no: el interruptor corta al instante y se
@@ -407,6 +417,7 @@ class GameState {
   Map<String, dynamic> toJson() => {
         'tutorialSeen': tutorialSeen.value,
         'music': musicEnabled.value,
+        'sfx': sfxEnabled.value,
         'haptics': hapticsEnabled.value,
         'swipeSensitivity': swipeSensitivity.value,
         'theme': switch (themeMode.value) {
@@ -432,6 +443,9 @@ class GameState {
     // (prendida) y no se pisa nada.
     final music = json['music'];
     if (music is bool) musicEnabled.value = music;
+    // Efectos guardados. Saves viejos no traen la clave: queda prendido.
+    final sfx = json['sfx'];
+    if (sfx is bool) sfxEnabled.value = sfx;
     // Vibración guardada. Saves viejos no traen la clave: se respeta el default
     // (prendida) y no se pisa nada.
     final haptics = json['haptics'];
@@ -546,6 +560,7 @@ class GameState {
     // Ajustes.
     tutorialSeen.value = false;
     musicEnabled.value = true;
+    sfxEnabled.value = true;
     hapticsEnabled.value = true;
     swipeSensitivity.value = defaultSensitivity;
     themeMode.value = ThemeMode.system;
@@ -575,6 +590,13 @@ class GameState {
   void setMusicEnabled(bool value) {
     if (musicEnabled.value == value) return;
     musicEnabled.value = value;
+    save();
+  }
+
+  /// Prende o apaga los efectos de sonido y lo persiste.
+  void setSfxEnabled(bool value) {
+    if (sfxEnabled.value == value) return;
+    sfxEnabled.value = value;
     save();
   }
 

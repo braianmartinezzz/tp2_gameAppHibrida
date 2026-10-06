@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../audio/game_sfx.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import 'rewards_modal.dart';
@@ -148,7 +149,7 @@ class GameOverOverlay extends StatelessWidget {
                           width: double.infinity,
                           child: FilledButton.icon(
                             key: const ValueKey('revive-button'),
-                            onPressed: onRevive,
+                            onPressed: sfxTap(onRevive),
                             icon: Icon(
                               gameState.isPro
                                   ? Icons.favorite_rounded
@@ -174,9 +175,9 @@ class GameOverOverlay extends StatelessWidget {
                           width: double.infinity,
                           child: OutlinedButton.icon(
                             key: const ValueKey('revive-diamonds-button'),
-                            onPressed: gameState.canPayRevive
+                            onPressed: sfxTap(gameState.canPayRevive
                                 ? onReviveWithDiamonds
-                                : null,
+                                : null),
                             icon: const Icon(Icons.diamond_rounded,
                                 color: AppColors.gemDeep),
                             label: Text(
@@ -189,7 +190,7 @@ class GameOverOverlay extends StatelessWidget {
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton.icon(
-                          onPressed: onRestart,
+                          onPressed: sfxTap(onRestart),
                           icon: const Icon(Icons.replay_rounded),
                           label: const Text('Reintentar'),
                         ),
