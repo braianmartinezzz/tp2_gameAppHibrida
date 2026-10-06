@@ -44,6 +44,8 @@ class CoinComponent extends DepthComponent {
     required super.speed,
     required super.spawnT,
     this.elevated = false,
+    this.lift = 0,
+    this.anchored = false,
     this.value = 1,
   }) : super(
           position: Vector2.zero(),
@@ -60,8 +62,21 @@ class CoinComponent extends DepthComponent {
   /// alcanza, la caja parada (0..34) no.
   static const double elevatedBandMin = 56;
 
+  /// Cuánto flota (px, en la línea base) una gema anclada sobre el techo del
+  /// camión: de ahí sale la altura de su sombra.
+  static const double roofGap = 6;
+
   /// true = flota y hay que saltar para recogerla.
   final bool elevated;
+
+  /// Altura (px sobre el piso, en la línea base) a la que flota la gema cuando
+  /// no es [elevated]: los diamantes del techo de un camión van a la altura
+  /// del techo.
+  final double lift;
+
+  /// true = viaja pegada a un camión (el imán no la mueve de carril: se
+  /// quedaría flotando fuera del techo).
+  final bool anchored;
 
   /// Diamantes que da al recogerla (1 a 5). Las de 3 o más se dibujan doradas.
   final int value;
@@ -79,7 +94,7 @@ class CoinComponent extends DepthComponent {
   void syncGeometry() {
     final s = depthScale;
     final w = worldSize * s;
-    _bandMinPx = (elevated ? elevatedBandMin : 0) * s;
+    _bandMinPx = (elevated ? elevatedBandMin : lift) * s;
     position.setValues(
       centerX - w * 0.5,
       baseY - (_bandMinPx + w),
@@ -102,7 +117,9 @@ class CoinComponent extends DepthComponent {
     if (a <= 0) return;
     final w = size.x;
     final h = size.y;
-    final groundY = h + _bandMinPx; // línea de suelo en coordenadas locales
+    // Línea de suelo en coordenadas locales: el asfalto, o el techo del
+    // camión si la gema viaja anclada a uno.
+    final groundY = anchored ? h + roofGap * depthScale : h + _bandMinPx;
 
     // Sombra en el piso: separa la moneda del suelo y hace visible el salto.
     canvas.drawOval(

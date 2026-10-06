@@ -84,7 +84,7 @@ void main() {
     final gameState = GameState()
       ..lives.value = 1000000 // invulnerable: acá solo se mide el dibujo
       ..themeMode.value = ThemeMode.dark;
-    final game = RunnerGame(gameState: gameState, hordeEnabled: false, zombiesEnabled: false);
+    final game = RunnerGame(gameState: gameState, hordeEnabled: false, zombiesEnabled: false, trucksEnabled: false);
     await tester.pumpWidget(GameWidget(game: game));
 
     // Los tres patrones más representativos, cada uno en su zona del corredor.
@@ -191,7 +191,7 @@ void main() {
     final gameState = GameState()
       ..lives.value = 1000000
       ..themeMode.value = ThemeMode.dark;
-    final game = RunnerGame(gameState: gameState, hordeEnabled: false, zombiesEnabled: false);
+    final game = RunnerGame(gameState: gameState, hordeEnabled: false, zombiesEnabled: false, trucksEnabled: false);
     await tester.pumpWidget(GameWidget(game: game));
     for (var i = 0; i < 30; i++) {
       game.powerUps.grantInvulnerability(); // sin golpes: aísla la sacudida

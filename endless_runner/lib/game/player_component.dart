@@ -80,6 +80,10 @@ class PlayerComponent extends PositionComponent {
   static const double jumpSpeed = 420;
   static const double gravity = 1450;
 
+  /// Duración y velocidad extra del empujón lateral de un choque.
+  static const double bounceDuration = 0.3;
+  static const double bounceBoost = 2.4;
+
   /// Duración del agachado y caída rápida al agacharse en el aire.
   static const double rollDuration = 0.48;
   static const double diveSpeed = 980;
@@ -103,10 +107,22 @@ class PlayerComponent extends PositionComponent {
   /// Posición interpolada entre carriles (-1..1). Es la que se dibuja.
   double lanePos = 0;
 
-  /// Altura sobre el suelo en px (0 = apoyado).
+  /// Altura sobre la ruta en px (0 = apoyado en el asfalto). Es absoluta: arriba
+  /// de un camión vale lo que mide su techo.
   double jumpY = 0;
 
   double jumpV = 0;
+
+  /// Altura de la superficie que lo sostiene, en px sobre la ruta: 0 en el
+  /// asfalto, la del techo (o de la rampa) cuando corre sobre un camión.
+  /// [RunnerGame] la fija cada cuadro. Con los pies en esa altura está
+  /// apoyado; si la superficie sube (rampa) lo acompaña, y si desaparece
+  /// (fin del techo) cae.
+  double groundHeight = 0;
+
+  /// Segundos que quedan de empujón lateral tras chocar con un camión: el
+  /// cambio de carril va más rápido para sacarlo del medio.
+  double bounceTimer = 0;
 
   /// Tiempo restante de agachado.
   double rollTimer = 0;
@@ -131,7 +147,7 @@ class PlayerComponent extends PositionComponent {
   /// Y de los pies cuando está apoyado (referencia de colisión).
   double get groundFeetY => _groundY + playerSize * 0.5;
 
-  bool get isAirborne => jumpY > 0 || jumpV != 0;
+  bool get isAirborne => jumpY > groundHeight + 0.01 || jumpV != 0;
   bool get isRolling => rollTimer > 0;
 
   /// Alto real del cuerpo: 34 parado, [rollHeight] agachado.
@@ -204,6 +220,13 @@ class PlayerComponent extends PositionComponent {
     lane = (lane + dir).clamp(-1, 1);
   }
 
+  /// Lo empuja hacia [newLane] (choque contra un camión): cambia de carril
+  /// más rápido un instante.
+  void bounceTo(int newLane) {
+    lane = newLane.clamp(-1, 1);
+    bounceTimer = bounceDuration;
+  }
+
   /// Salta. Solo desde el suelo y sin agachado activo.
   bool jump() {
     if (isAirborne || isRolling) return false;
@@ -230,6 +253,8 @@ class PlayerComponent extends PositionComponent {
     lanePos = 0;
     jumpY = 0;
     jumpV = 0;
+    groundHeight = 0;
+    bounceTimer = 0;
     rollTimer = 0;
     _pendingRoll = false;
     blinkAlpha = 1;
@@ -257,8 +282,9 @@ class PlayerComponent extends PositionComponent {
 
     // Carril: avanza a velocidad constante hasta el objetivo ("snap").
     final target = lane.toDouble();
+    if (bounceTimer > 0) bounceTimer -= dt;
     if (lanePos != target) {
-      final step = laneSpeed * dt;
+      final step = laneSpeed * (bounceTimer > 0 ? bounceBoost : 1.0) * dt;
       if ((target - lanePos).abs() <= step) {
         lanePos = target;
       } else {
@@ -271,14 +297,18 @@ class PlayerComponent extends PositionComponent {
     if (isAirborne) {
       jumpV -= gravity * dt;
       jumpY += jumpV * dt;
-      if (jumpY <= 0) {
-        jumpY = 0;
+      if (jumpY <= groundHeight) {
+        jumpY = groundHeight;
         jumpV = 0;
         if (_pendingRoll) {
           _pendingRoll = false;
           rollTimer = rollDuration;
         }
       }
+    } else {
+      // Apoyado: acompaña la superficie hacia arriba (rampa). Si la
+      // superficie se fue, `isAirborne` ya da true y cae por gravedad.
+      jumpY = groundHeight;
     }
 
     if (rollTimer > 0) rollTimer -= dt;
@@ -403,8 +433,9 @@ class PlayerComponent extends PositionComponent {
 
     // Sombra en el SUELO (no en el cuerpo): al saltar queda abajo y se achica y
     // se aclara con la altura, que es lo que da la sensación de salto.
-    final h = (jumpY / 110).clamp(0.0, 1.0);
-    final groundY = size.y + jumpY;
+    final lift = math.max(0.0, jumpY - groundHeight);
+    final h = (lift / 110).clamp(0.0, 1.0);
+    final groundY = size.y + lift;
     final shadowW = playerSize * (isRolling ? 1.15 : 0.95) * (1 - 0.35 * h);
     final shadowA = (0.30 * (1 - 0.55 * h)) * blinkAlpha.clamp(0.0, 1.0);
     _shadowPaint.color = const Color(0xFF0F172A).withValues(alpha: shadowA * 0.55);

@@ -169,7 +169,7 @@ void main() {
     testWidgets('con la horda apagada el corredor no muere por ella',
         (tester) async {
       final gameState = GameState();
-      final game = RunnerGame(gameState: gameState, hordeEnabled: false, zombiesEnabled: false);
+      final game = RunnerGame(gameState: gameState, hordeEnabled: false, zombiesEnabled: false, trucksEnabled: false);
       await tester.pumpWidget(GameWidget(game: game));
       await tester.pump(const Duration(milliseconds: 16));
 

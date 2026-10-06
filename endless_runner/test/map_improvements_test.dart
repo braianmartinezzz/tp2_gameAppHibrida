@@ -144,7 +144,7 @@ void main() {
       final game = RunnerGame(
         gameState: GameState()..lives.value = 99,
         hordeEnabled: false,
-        zombiesEnabled: false,
+        zombiesEnabled: false, trucksEnabled: false,
       );
       await tester.pumpWidget(GameWidget(game: game));
 

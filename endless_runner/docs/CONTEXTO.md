@@ -283,6 +283,10 @@ dibuja), `jumpY`/`jumpV` (parábola con integración semi-implícita),
 `rollTimer`, `blinkAlpha` (parpadeo de invulnerabilidad). La X de pantalla
 sale de `perspective.xAtT(lanePos, t)` — al saltar **no cambia de carril**.
 
+> **Nota (camiones):** `jumpY` es la altura **absoluta** sobre la ruta y
+> `groundHeight` la de la superficie que lo sostiene (0 en el asfalto; el
+> techo o la rampa sobre un camión). `isAirborne` es `jumpY > groundHeight`.
+
 ### 4.5 `obstacle_component.dart` — obstáculos
 
 Enum `ObstacleKind`. La **banda de altura** sobre el suelo define el gesto:
@@ -313,6 +317,49 @@ del corredor **son diamantes**: cada una llama `gameState.collectDiamond()`.
 - `spawnT = 0.13` (más profundo que los obstáculos, `0.06`, para que un
   obstáculo posterior nunca nazca pegado a la cola de monedas).
 - Nunca monedas sueltas: siempre tandas validadas contra obstáculos.
+
+### 4.6b `truck_component.dart` — camiones con rampa
+
+`TruckComponent` es un camión **estacionado en la ruta**, como los trenes de
+Subway Surfers: se puede subir por la **rampa** y correr por el techo juntando
+diamantes, o esquivarlo (los que no tienen rampa son un muro).
+
+- **Geometría.** Es un cuerpo largo, no una caja chata: ocupa un tramo de
+  profundidad. Se mide en `z = 1 + t`; el piso avanza multiplicando `z` por el
+  mismo factor cada cuadro (`z *= 1 + speed·dt/2H`, la misma ley de
+  `DepthComponent`), así el largo del camión —y la distancia entre el camión y
+  sus diamantes— se conserva exacto al acercarse. Se mide en `u = ln z`
+  (~0.2 u/s a velocidad base).
+- **Partes** (de cerca a lejos): rampa de tablones (0.20 u) → cara trasera de
+  la caja en pixel-art (`truck_sprites.dart`) → techo de la caja
+  (96 px sobre la línea base) → cabina, un escalón más baja (60 px, 0.16 u).
+  Tres aspectos (`TruckLook`): blanco, azul, oxidado.
+- **`surfaceAt(zp, lanePos, halfPlayer)`** devuelve la altura del techo bajo
+  los pies del jugador (o `null` si ahí no hay camión): techo de caja,
+  cabina o rampa (lineal en `u`, de 0 a la altura del techo).
+- **Choque** (en `RunnerGame._updateTrucks`, una vez por cuadro):
+  - superficie hasta ~14 px sobre los pies (más una tolerancia que crece con
+    la velocidad) → **se camina**: `PlayerComponent.groundHeight` la sostiene
+    (rampa, techo);
+  - más alta → **golpe**: cuesta una vida (o el escudo; sin vida si hay
+    respiro de invulnerabilidad) y **rebota** al carril vecino más cercano
+    que no esté cerrado por otro camión (`PlayerComponent.bounceTo`: cambio de
+    carril ×2.4 durante 0.3 s). Un solo golpe por cruce (`wasTouching`);
+  - sin superficie → **cae** por gravedad (el final del techo).
+- **Diamantes del techo** (solo con rampa): una hilera de 4+ gemas (1 💎 cada
+  una, la del medio dorada = 3) a la altura del techo. Se siembran a medida
+  que cada tramo asoma por el horizonte y viajan *pegadas* al camión
+  (`CoinComponent.anchored`; el imán no las mueve de carril).
+- **Aparición.** El primero a los 12 s (siempre con rampa), luego cada
+  10-16 s (menos con la dificultad), 65 % con rampa. Espera a que la rampa
+  tenga el camino despejado. Mientras un camión está por nacer o tapa el
+  horizonte **solo nacen vallas y losas** (nunca contenedor ni auto: se
+  arma una trampa), nada nace en su carril ni pegado a su cola, y los
+  zombis esperan.
+- **Dibujo.** Es hijo del juego con `priority` dinámica: debajo de todo
+  mientras no pasó la fila del jugador (el corredor lo pisa al subir) y
+  encima cuando ya pasó entero. `RunnerGame(trucksEnabled: false)` los apaga
+  (los tests que miden otra cosa lo usan).
 
 ### 4.7 Power-ups
 
@@ -492,6 +539,7 @@ geometría fija `const Perspective(width: 480, height: 760)` y helpers
 | `widget_test.dart` | `GameHeader` muestra `braian_123`, `score: 0`, `85` diamantes, chip `BASIC` |
 | `map_preview_test.dart` | Genera `build/map_preview_{dark,light}.png` |
 | `gameplay_preview_test.dart` | Genera `build/gameplay_preview_{dark,light,death}.png` |
+| `truck_test.dart` | `surfaceAt` (caja, cabina, rampa continua, carriles), el corredor sobre un techo (apoyo, caída, salto), dibujo de todos los aspectos, choque de frente + rebote, subir por la rampa y juntar diamantes, caída al final, spawns que respetan al camión, reinicio |
 | `theme_test.dart` | Ciclo `Auto → Claro → Oscuro`, resolución de `Auto` contra el SO, persistencia del `theme`, fundido del lienzo (corriendo y pausado), paleta día↔noche y **contraste WCAG** de la UI |
 
 ---
@@ -571,6 +619,9 @@ flutter analyze
   acción por gesto).
 - **Obstáculos**: valla → saltar · losa → agacharse · bloque → cambiar de
   carril. El spawn **siempre deja un carril libre**.
+- **Camiones con rampa** (desde los 12 s): se suben por la rampa y se corre
+  por el techo juntando diamantes; sin rampa son un muro. De frente = una
+  vida y rebote al carril vecino.
 - **Monedas = diamantes**: 4 patrones en tandas validadas contra obstáculos.
 - **Power-ups**: escudo (1 golpe), imán (6 s), multiplicador ×2 (8 s), con
   HUD propio sobre el canvas.

@@ -87,7 +87,7 @@ void main() {
         gameState: state,
         music: music,
         hordeEnabled: false,
-        zombiesEnabled: false,
+        zombiesEnabled: false, trucksEnabled: false,
       );
 
       await tester.pumpWidget(GameWidget(game: game));
@@ -130,7 +130,7 @@ void main() {
         gameState: state,
         music: music,
         hordeEnabled: false,
-        zombiesEnabled: false,
+        zombiesEnabled: false, trucksEnabled: false,
       );
 
       await tester.pumpWidget(GameWidget(game: game));

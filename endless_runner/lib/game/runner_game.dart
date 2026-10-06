@@ -16,6 +16,7 @@ import 'perspective.dart';
 import 'power_up_component.dart';
 import 'power_up_state.dart';
 import 'speed_rumble.dart';
+import 'truck_component.dart';
 import 'zombie_obstacle.dart';
 
 /// Acciones que el jugador dispara con un gesto. El tutorial las escucha para
@@ -27,6 +28,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     required this.gameState,
     this.hordeEnabled = true,
     this.zombiesEnabled = true,
+    this.trucksEnabled = true,
     GameMusic? music,
   }) : music = music ?? GameMusic() {
     // El tema se escucha desde el minuto cero (no recién cuando el motor
@@ -65,6 +67,10 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
   /// Zombis móviles que aparecen como obstáculos (patrullan o persiguen al
   /// jugador). Los tests que miden otra cosa los apagan.
   bool zombiesEnabled;
+
+  /// Camiones con rampa que se pueden subir (como los trenes de Subway
+  /// Surfers). Los tests que miden otra cosa los apagan.
+  bool trucksEnabled;
 
   /// Se llama cada vez que un gesto produce una acción efectiva del corredor
   /// (un salto en el aire, que no hace nada, no cuenta).
@@ -176,6 +182,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
 
   final List<ObstacleComponent> _obstacles = [];
   final List<ZombieObstacle> _zombies = [];
+  final List<TruckComponent> _trucks = [];
   final List<CoinComponent> _coins = [];
   final List<PowerUpComponent> _powerUpItems = [];
   final Random _rng = Random();
@@ -209,6 +216,38 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
 
   /// Dificultad 0..1 para zombis: llega al máximo a los 90 s de partida.
   double get zombieDifficulty => (_elapsed / 90).clamp(0.0, 1.0).toDouble();
+
+  // --- Camiones ---------------------------------------------------------------
+
+  /// Segundos de partida hasta el primer camión (antes se aprenden los otros
+  /// obstáculos).
+  static const double _firstTruckDelay = 12.0;
+  double _truckCooldown = _firstTruckDelay;
+
+  /// true cuando ya toca un camión pero todavía hay algo en el camino de su
+  /// rampa: mientras tanto solo nacen obstáculos que se pasan sin salirse del
+  /// carril (valla y losa), así nunca se arma una trampa.
+  bool _truckDue = false;
+  double _sinceTruckSpawn = 999;
+
+  /// Distancia (unidades `u = ln z`, ~0.2 u/s a velocidad base) alrededor del
+  /// nacimiento de un camión en la que solo valen obstáculos pasables.
+  static const double _truckZone = 0.45;
+
+  /// Distancia libre que tiene que haber delante de un camión nuevo para que
+  /// entre su rampa (0.2 u) con aire.
+  static const double _truckRampClear = 0.35;
+
+  /// Aire (u) entre el final de un camión y lo que nace en su carril, para
+  /// que quien cae del techo no aterrice sobre un obstáculo.
+  static const double _truckTailGap = 0.14;
+
+  /// Alto del escalón (px a la profundidad del jugador) que se camina sin
+  /// golpearse: una rampa sube de a ~2-5 px por cuadro.
+  static const double _stepTolerance = 14;
+
+  /// Camiones vivos (expuesto para tests).
+  List<TruckComponent> get trucks => List.unmodifiable(_trucks);
 
   /// Zombis vivos (expuesto para tests).
   List<ZombieObstacle> get zombies => List.unmodifiable(_zombies);
@@ -253,6 +292,9 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     }
     for (final zombie in _zombies) {
       zombie.perspective = _perspective;
+    }
+    for (final truck in _trucks) {
+      truck.perspective = _perspective;
     }
     if (_hasPlayer) {
       // Al redimensionar solo se mueve la fila de suelo: carril y salto
@@ -383,7 +425,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     // Polvo al aterrizar: en este frame el jugador pasó del aire al suelo.
     if (_wasAirborne && !_player.isAirborne) {
       juice.landDust(
-        Offset(_player.position.x, _player.groundFeetY),
+        Offset(_player.position.x, _player.groundFeetY - _player.groundHeight),
         blend: _themeBlend,
       );
     }
@@ -408,6 +450,13 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
 
     _sinceObstacleSpawn += dt;
     _sinceZombieSpawn += dt;
+    _sinceTruckSpawn += dt;
+
+    if (trucksEnabled) {
+      _truckCooldown -= dt;
+      if (_truckCooldown <= 0) _truckDue = true;
+      if (_truckDue) _trySpawnTruck();
+    }
 
     _spawnCooldown -= dt;
     if (_spawnCooldown <= 0) {
@@ -426,7 +475,10 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     if (zombiesEnabled) {
       _zombieCooldown -= dt;
       if (_zombieCooldown <= 0) {
-        if (_sinceObstacleSpawn < _zombieClearance) {
+        if (_trucksOccupySpawnRow()) {
+          // Un camión todavía ocupa el horizonte: el zombi nacería adentro.
+          _zombieCooldown = 0.2;
+        } else if (_sinceObstacleSpawn < _zombieClearance) {
           // Obstáculo muy reciente: se frenan los nuevos obstáculos hasta
           // que se cumpla la separación y el zombi pueda salir.
           _zombieDue = true;
@@ -484,6 +536,8 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
         _zombies.remove(zombie);
       }
     }
+
+    _updateTrucks(dt);
 
     for (final coin in List<CoinComponent>.from(_coins)) {
       coin.speed = _difficultySpeed;
@@ -557,12 +611,36 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
       ..sort((a, b) => b.baseY.compareTo(a.baseY)); // más cercano primero
 
     var kind = _rollKind();
+
+    // Con un camión por nacer o en el horizonte solo valen obstáculos que se
+    // pasan sin salirse del carril (valla y losa): el camión ya cierra un
+    // carril y un contenedor o un auto podrían armar una trampa.
+    final truckLanes = _truckLanesAtSpawn();
+    final zoneSeconds =
+        _truckZone * 2 * _perspective.corridorHeight / _difficultySpeed;
+    final inTruckZone =
+        _truckDue || _sinceTruckSpawn < zoneSeconds || truckLanes.isNotEmpty;
+    if (inTruckZone &&
+        (kind == ObstacleKind.block || kind == ObstacleKind.car)) {
+      kind = _rng.nextBool() ? ObstacleKind.lowBarrier : ObstacleKind.overhead;
+    }
+
     double? lane;
     if (kind == ObstacleKind.car) {
       lane = _carLane(ahead);
       if (lane == null) kind = ObstacleKind.block; // no hay carril libre seguro
     }
     lane ??= _nextLane(ahead);
+
+    // Nunca nace dentro de un camión (ni pegado a su cola).
+    if (truckLanes.contains(lane.round())) {
+      final free = [
+        for (final l in const [-1, 0, 1])
+          if (!truckLanes.contains(l)) l,
+      ];
+      if (free.isEmpty) return;
+      lane = free[_rng.nextInt(free.length)].toDouble();
+    }
     _lastWasCar = kind == ObstacleKind.car;
 
     final obstacle = ObstacleComponent(
@@ -574,6 +652,247 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     _obstacles.add(obstacle);
     add(obstacle);
     _sinceObstacleSpawn = 0;
+  }
+
+  // --- Camiones ---------------------------------------------------------------
+
+  /// Camiones generados en la partida (el primero siempre lleva rampa, así el
+  /// jugador aprende que se puede subir).
+  int _trucksSpawned = 0;
+
+  /// Segundos hasta el próximo camión: 10-16 s, un poco menos al avanzar.
+  double _nextTruckDelay() =>
+      (10 + _rng.nextDouble() * 6) * (1 - 0.3 * zombieDifficulty);
+
+  /// Distancia (u) desde la fila de nacimiento hasta la línea de suelo
+  /// [baseY]: la medida uniforme del mundo, que se conserva al acercarse.
+  double _uAhead(double baseY) =>
+      log(1 + _perspective.tAtY(baseY)) - log(TruckComponent.spawnZ);
+
+  /// true si algún camión todavía tapa (o está pegado a) la fila de
+  /// nacimiento del horizonte.
+  bool _trucksOccupySpawnRow() => _trucks.any(
+        (t) => t.zBack < TruckComponent.spawnZ * exp(_truckTailGap),
+      );
+
+  /// Carriles cerrados en la fila de nacimiento por un camión.
+  Set<int> _truckLanesAtSpawn() => {
+        for (final t in _trucks)
+          if (t.zBack < TruckComponent.spawnZ * exp(_truckTailGap)) t.laneIndex,
+      };
+
+  /// true si [laneIndex] tiene el camino de una rampa nueva despejado: nada
+  /// pesado cerca del horizonte y nada en su carril dentro del largo de la
+  /// rampa.
+  bool _truckLaneClear(int laneIndex) {
+    for (final o in _obstacles) {
+      final u = _uAhead(o.baseY);
+      final heavy = o.kind == ObstacleKind.block || o.kind == ObstacleKind.car;
+      if (heavy) {
+        if (u < _truckZone) return false;
+      } else if (o.coversLane(laneIndex.toDouble()) && u < _truckRampClear) {
+        return false;
+      }
+    }
+    for (final z in _zombies) {
+      if (_uAhead(z.baseY) < _truckRampClear) return false;
+    }
+    for (final c in _coins) {
+      if ((c.lane - laneIndex).abs() < 0.7 && _uAhead(c.baseY) < _truckRampClear) {
+        return false;
+      }
+    }
+    for (final item in _powerUpItems) {
+      if ((item.lane - laneIndex).abs() < 0.7 &&
+          _uAhead(item.baseY) < _truckRampClear) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /// Intenta generar el camión que ya toca: espera a que el anterior salga del
+  /// horizonte y a que haya un carril con la rampa despejada.
+  void _trySpawnTruck() {
+    if (_trucksOccupySpawnRow()) return;
+    final lanes = [-1, 0, 1]..shuffle(_rng);
+    for (final l in lanes) {
+      if (_truckLaneClear(l)) {
+        spawnTruck(lane: l.toDouble());
+        return;
+      }
+    }
+  }
+
+  /// Genera un camión y lo suma a la partida.
+  ///
+  /// [lane], [ramp], [length], [look] y [z] son para tests y guiones; en el
+  /// juego salen del azar (65 % con rampa; sin rampa es un muro que se
+  /// esquiva). Con rampa, el techo lleva una hilera de diamantes que se van
+  /// sembrando a medida que cada tramo asoma por el horizonte.
+  TruckComponent spawnTruck({
+    double? lane,
+    bool? ramp,
+    double? length,
+    TruckLook? look,
+    double? z,
+  }) {
+    final withRamp =
+        ramp ?? (_trucksSpawned == 0 || _rng.nextDouble() < 0.65);
+    final box = length ?? const [0.42, 0.55, 0.70][_rng.nextInt(3)];
+    final truck = TruckComponent(
+      lane: lane ?? (_rng.nextInt(3) - 1).toDouble(),
+      speed: _difficultySpeed,
+      perspective: _perspective,
+      boxLength: box,
+      hasRamp: withRamp,
+      look: look ?? TruckLook.values[_rng.nextInt(TruckLook.values.length)],
+      startZ: z,
+    );
+    if (withRamp) {
+      const margin = 0.08;
+      final count = max(4, ((box - 2 * margin) / 0.05).floor() + 1);
+      final step = (box - 2 * margin) / (count - 1);
+      truck.plannedCoins = count;
+      truck.pendingCoins.addAll([
+        for (var i = 0; i < count; i++) margin + i * step,
+      ]);
+    }
+    _trucks.add(truck);
+    add(truck);
+    _trucksSpawned++;
+    _sinceTruckSpawn = 0;
+    _truckDue = false;
+    _truckCooldown = _nextTruckDelay();
+    return truck;
+  }
+
+  /// Suelta los diamantes del techo que ya asoman por el horizonte: cada uno
+  /// nace donde le toca sobre el camión y viaja pegado a él.
+  void _releaseRoofCoins(TruckComponent truck) {
+    while (truck.pendingCoins.isNotEmpty) {
+      final z = truck.zFront * exp(-truck.pendingCoins.first);
+      if (z < TruckComponent.spawnZ) break;
+      final index = truck.plannedCoins - truck.pendingCoins.length;
+      truck.pendingCoins.removeAt(0);
+      final coin = CoinComponent(
+        lane: truck.lane,
+        perspective: _perspective,
+        speed: _difficultySpeed,
+        spawnT: z - 1,
+        lift: TruckComponent.roofHeight + CoinComponent.roofGap,
+        anchored: true,
+        value: index == truck.plannedCoins ~/ 2 ? 3 : 1, // el del medio, dorado
+      );
+      _coins.add(coin);
+      add(coin);
+    }
+  }
+
+  /// Saca los camiones y los diamantes que viajan pegados a ellos, y deja al
+  /// corredor apoyado en la ruta (revivir y reiniciar).
+  void _clearTrucks() {
+    for (final truck in _trucks) {
+      truck.removeFromParent();
+    }
+    _trucks.clear();
+    for (final coin in _coins.where((c) => c.anchored).toList()) {
+      coin.removeFromParent();
+      _coins.remove(coin);
+    }
+    _truckDue = false;
+    _sinceTruckSpawn = 999;
+    _player.groundHeight = 0;
+  }
+
+  /// Orden de dibujo: un camión que todavía está de este lado de la fila del
+  /// jugador queda debajo de todo (el corredor lo pisa al subir); uno que ya
+  /// pasó entero tapa al corredor. Entre camiones, el lejano se pinta antes.
+  int _truckPriority(TruckComponent truck, double zp) {
+    if (truck.zBack > zp + 0.02) return 20 + (truck.zFront * 10).round();
+    return -500 + (truck.zFront * 10).round();
+  }
+
+  /// Resuelve los camiones contra el corredor, una vez por cuadro:
+  ///
+  ///  - mide la altura del techo que tiene bajo los pies;
+  ///  - si es un escalón que se camina (rampa, o el techo estando arriba), lo
+  ///    sostiene: [PlayerComponent.groundHeight];
+  ///  - si queda muy por encima de los pies (frente del camión, un costado),
+  ///    es un golpe: cuesta una vida y lo empuja al carril de al lado.
+  void _updateTrucks(double dt) {
+    if (_trucks.isEmpty) {
+      _player.groundHeight = 0;
+      return;
+    }
+    final corridor = _perspective.corridorHeight;
+    final zp = 1 + _perspective.tAtY(_player.groundFeetY);
+    final span = _perspective.halfWidthAtT(zp - 1);
+    final halfPlayer = span > 0 ? _player.hitBox.width * 0.5 / span : 0.0;
+
+    // La rampa sube unos px por cuadro y el jugador la sigue con un cuadro de
+    // retraso: la tolerancia crece con la velocidad para no confundirla con
+    // un muro cuando el cuadro es largo o el piso va rápido.
+    final risePerFrame = corridor > 0
+        ? TruckComponent.roofHeight *
+            (zp - 1) *
+            (_difficultySpeed * dt / (2 * corridor)) /
+            TruckComponent.rampLength
+        : 0.0;
+    final tolerance = _stepTolerance + 1.5 * risePerFrame;
+
+    var support = 0.0;
+    for (final truck in List<TruckComponent>.from(_trucks)) {
+      truck.speed = _difficultySpeed;
+      _releaseRoofCoins(truck);
+      truck.priority = _truckPriority(truck, zp);
+
+      final h = truck.surfaceAt(zp, _player.lanePos, halfPlayer);
+      if (h == null) {
+        truck.wasTouching = false;
+      } else if (h > _player.jumpY + tolerance) {
+        if (!truck.wasTouching) {
+          truck.wasTouching = true;
+          _onTruckHit(truck, zp, halfPlayer);
+        }
+      } else {
+        truck.wasTouching = false;
+        if (h > support) support = h;
+      }
+
+      if (truck.offScreen) {
+        truck.removeFromParent();
+        _trucks.remove(truck);
+      }
+    }
+    _player.groundHeight = support;
+  }
+
+  /// Golpe contra un camión: es sólido, así que siempre empuja; solo cuesta
+  /// una vida (o el escudo) si no hay un respiro de invulnerabilidad.
+  void _onTruckHit(TruckComponent truck, double zp, double halfPlayer) {
+    if (!powerUps.isInvulnerable) _onCollision();
+    if (gameState.isGameOver.value) return;
+
+    // Rebota al carril de al lado más cercano que no esté cerrado por otro
+    // camión (a un costado vuelve por donde vino; de frente elige al azar).
+    final truckLane = truck.laneIndex;
+    int? best;
+    var bestScore = double.infinity;
+    for (final l in const [-1, 0, 1]) {
+      if (l == truckLane) continue;
+      var score = (l - _player.lanePos).abs() + _rng.nextDouble() * 0.01;
+      final blocked = _trucks.any((t) {
+        final h = t.surfaceAt(zp, l.toDouble(), halfPlayer);
+        return h != null && h > _player.jumpY + _stepTolerance;
+      });
+      if (blocked) score += 10;
+      if (score < bestScore) {
+        bestScore = score;
+        best = l;
+      }
+    }
+    if (best != null) _player.bounceTo(best);
   }
 
   // --- Zombis móviles ----------------------------------------------------------
@@ -833,6 +1152,16 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
   /// (comparado en unidades de carril: ambos actores están a la misma
   /// profundidad, así que los anchos son directamente comparables).
   bool _depthIsFree(double lane, double baseY, double halfSpan) {
+    for (final truck in _trucks) {
+      if ((truck.lane - lane).abs() >=
+          TruckComponent.halfWidth + halfSpan + 0.1) {
+        continue;
+      }
+      if (baseY >= truck.yOf(truck.zBack) - 28 &&
+          baseY <= truck.yOf(truck.zRampStart) + 28) {
+        return false;
+      }
+    }
     for (final obstacle in _obstacles) {
       if ((obstacle.baseY - baseY).abs() > 28) continue;
       if ((obstacle.lane - lane).abs() < obstacle.laneHalfSpan + halfSpan) {
@@ -906,6 +1235,7 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
   void _applyMagnet(double dt) {
     final feet = _player.groundFeetY;
     for (final coin in _coins) {
+      if (coin.anchored) continue; // viaja pegada a su camión
       if (coin.baseY < feet - _magnetWindow || coin.baseY > feet + 40) continue;
       final diff = _player.lanePos - coin.lane;
       if (diff.abs() < 0.0005) continue;
@@ -1150,6 +1480,8 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
       zombie.removeFromParent();
     }
     _zombies.clear();
+    _clearTrucks();
+    _truckCooldown = 6.0; // un respiro antes del próximo camión
     _zombieCooldown = _firstZombieDelay;
     _zombieDue = false;
     _sinceObstacleSpawn = 0;
@@ -1182,6 +1514,9 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
         zombie.removeFromParent();
       }
       _zombies.clear();
+      _clearTrucks();
+      _truckCooldown = _firstTruckDelay;
+      _trucksSpawned = 0;
       _zombieCooldown = _firstZombieDelay;
       _zombieDue = false;
       _zombiesSpawned = 0;

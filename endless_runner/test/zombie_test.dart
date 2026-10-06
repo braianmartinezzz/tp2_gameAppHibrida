@@ -414,7 +414,7 @@ void main() {
       final game = RunnerGame(
         gameState: GameState(),
         hordeEnabled: false,
-        zombiesEnabled: false,
+        zombiesEnabled: false, trucksEnabled: false,
       );
       await tester.pumpWidget(GameWidget(game: game));
       await tester.pump(const Duration(milliseconds: 16));
