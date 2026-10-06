@@ -298,7 +298,7 @@ class _AdModalContentState extends State<_AdModalContent> {
     return PopScope(
       canPop: canClose,
       child: AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       titlePadding: const EdgeInsets.fromLTRB(22, 20, 22, 0),
       contentPadding: const EdgeInsets.fromLTRB(22, 14, 22, 0),
       actionsPadding: const EdgeInsets.fromLTRB(22, 14, 22, 18),

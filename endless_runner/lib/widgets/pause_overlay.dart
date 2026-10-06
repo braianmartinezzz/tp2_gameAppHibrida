@@ -79,7 +79,7 @@ class _PauseOverlayState extends State<PauseOverlay> {
           child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 4, sigmaY: 4),
             child: Container(
-              color: const Color(0xFF05060F).withValues(alpha: 0.58),
+              color: const Color(0xFF0A0706).withValues(alpha: 0.58),
             ),
           ),
         ),
@@ -166,7 +166,7 @@ class _PauseCard extends StatelessWidget {
         margin: const EdgeInsets.symmetric(horizontal: 24),
         decoration: BoxDecoration(
           color: scheme.surface,
-          borderRadius: BorderRadius.circular(30),
+          borderRadius: BorderRadius.circular(10),
           boxShadow: const [
             BoxShadow(
               color: Colors.black54,

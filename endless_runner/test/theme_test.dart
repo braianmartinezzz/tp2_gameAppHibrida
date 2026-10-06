@@ -262,17 +262,64 @@ void main() {
     });
 
     test('el blanco del header se lee sobre los dos degradés', () {
-      // Los rótulos del header son negrita grande (títulos y contadores):
-      // el umbral AA para texto grande es 3:1.
+      // Texto chico en la fuente pixel: umbral AA de 4.5:1 (no el de texto
+      // grande).
       for (final stops in [AppColors.headerLight, AppColors.headerDark]) {
         for (final stop in stops) {
           expect(
             contrast(Colors.white, stop),
-            greaterThanOrEqualTo(3.0),
+            greaterThanOrEqualTo(4.5),
             reason: 'blanco sobre ${stop.toARGB32().toRadixString(16)}',
           );
+          expect(contrast(AppColors.cream, stop), greaterThanOrEqualTo(4.5));
         }
       }
+    });
+
+    test('los íconos de la botonera (tinta oscura) se leen sobre su color', () {
+      for (final color in [
+        AppColors.ctrlPlay,
+        AppColors.ctrlPause,
+        AppColors.ctrlReset,
+        AppColors.mode,
+      ]) {
+        expect(
+          contrast(AppColors.ink, color),
+          greaterThanOrEqualTo(4.5),
+          reason: 'tinta sobre ${color.toARGB32().toRadixString(16)}',
+        );
+      }
+    });
+
+    test('ceniza y brasa: sin violeta en la UI, base cálida y acento naranja',
+        () {
+      double hue(Color c) => HSLColor.fromColor(c).hue;
+      bool violeta(Color c) => hue(c) > 240 && hue(c) < 300;
+
+      for (final c in [
+        ...AppColors.headerLight,
+        ...AppColors.headerDark,
+        AppColors.mode,
+        AppColors.ember,
+        AppTheme.light.colorScheme.primary,
+        AppTheme.dark.colorScheme.primary,
+        AppTheme.light.scaffoldBackgroundColor,
+        AppTheme.dark.scaffoldBackgroundColor,
+      ]) {
+        expect(violeta(c), isFalse, reason: '${c.toARGB32().toRadixString(16)}');
+      }
+      // La base (header y fondos) es marrón/carbón: tono entre rojo y amarillo
+      // (el rojo "cruza" el 0, por eso se acepta también el tramo 330..360).
+      for (final c in [
+        ...AppColors.headerLight,
+        ...AppColors.headerDark,
+        AppTheme.light.scaffoldBackgroundColor,
+        AppTheme.dark.scaffoldBackgroundColor,
+      ]) {
+        expect(hue(c) <= 60 || hue(c) >= 330, isTrue, reason: '${hue(c)}');
+      }
+      // El botón de modo es el único frío: se distingue del resto.
+      expect(hue(AppColors.mode), inInclusiveRange(180, 240));
     });
   });
 }

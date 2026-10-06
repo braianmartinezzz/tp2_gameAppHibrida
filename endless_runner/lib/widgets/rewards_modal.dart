@@ -13,7 +13,7 @@ Future<void> showRewardsModal(BuildContext context, GameState gameState) {
     isScrollControlled: true,
     showDragHandle: true,
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+      borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
     ),
     builder: (context) => SafeArea(
       child: SingleChildScrollView(

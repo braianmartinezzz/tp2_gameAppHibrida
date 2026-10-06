@@ -11,6 +11,7 @@ import '../widgets/game_controls.dart';
 import '../widgets/game_header.dart';
 import '../widgets/game_over_overlay.dart';
 import '../widgets/pause_overlay.dart';
+import '../widgets/pixel_transition.dart';
 import '../widgets/record_chip.dart';
 import '../widgets/tutorial_overlay.dart';
 
@@ -42,8 +43,41 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  Animation<double>? _routeAnimation;
+  VoidCallback? _launchListener;
+  bool _launchArmed = false;
+
+  /// Si la pantalla entra con la transición pixel (desde el inicio), el
+  /// corredor espera quieto detrás del telón y arranca justo cuando se
+  /// descubre. Si ya estaba abierta (primera ruta, tests) todo corre normal.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_launchArmed) return;
+    _launchArmed = true;
+    final animation = ModalRoute.of(context)?.animation;
+    if (animation == null ||
+        animation.status != AnimationStatus.forward ||
+        animation.value >= PixelDissolveRoute.revealAt) {
+      return;
+    }
+    _game.prepareLaunch();
+    void onTick() {
+      if (animation.value < PixelDissolveRoute.revealAt) return;
+      animation.removeListener(onTick);
+      _launchListener = null;
+      _game.launch();
+    }
+
+    _routeAnimation = animation;
+    _launchListener = onTick;
+    animation.addListener(onTick);
+  }
+
   @override
   void dispose() {
+    final listener = _launchListener;
+    if (listener != null) _routeAnimation?.removeListener(listener);
     WidgetsBinding.instance.removeObserver(this);
     _tutorialVisible.dispose();
     super.dispose();
@@ -63,7 +97,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final state = widget.gameState;
     // Iconos de la barra de estado y de navegación según el tema: sin esto
     // Android puede dejar íconos claros sobre fondo claro (o al revés).
@@ -103,26 +136,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     child: Container(
                       padding: const EdgeInsets.all(3.5),
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(26),
-                        gradient: LinearGradient(
+                        borderRadius: BorderRadius.circular(10),
+                        gradient: const LinearGradient(
                           colors: [
-                            scheme.primary,
-                            AppColors.gem,
-                            scheme.tertiary
+                            Color(0xFFFFC61F),
+                            AppColors.ember,
+                            Color(0xFF7A3B12),
                           ],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
                         ),
-                        boxShadow: [
+                        boxShadow: const [
                           BoxShadow(
-                            color: scheme.primary.withValues(alpha: 0.35),
-                            blurRadius: 18,
-                            offset: const Offset(0, 6),
+                            color: Color(0x66000000),
+                            offset: Offset(0, 4),
                           ),
                         ],
                       ),
                       child: ClipRRect(
-                        borderRadius: BorderRadius.circular(22.5),
+                        borderRadius: BorderRadius.circular(6.5),
                         // El corredor y sus capas de interfaz (récord, pausa,
                         // tutorial y resumen) comparten la misma área: los
                         // widgets van encima del juego, sin tocar el header ni
@@ -341,7 +373,7 @@ class _LivesChip extends StatelessWidget {
     return Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          color: const Color(0xFF0B1224).withValues(alpha: 0.55),
+          color: const Color(0xFF140E0C).withValues(alpha: 0.55),
           borderRadius: BorderRadius.circular(999),
           border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
         ),
@@ -411,7 +443,7 @@ class _RewardToast extends StatelessWidget {
               margin: const EdgeInsets.symmetric(horizontal: 20),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
               decoration: BoxDecoration(
-                color: const Color(0xFF0B1224).withValues(alpha: 0.88),
+                color: const Color(0xFF140E0C).withValues(alpha: 0.88),
                 borderRadius: BorderRadius.circular(18),
                 border: Border.all(color: AppColors.gold, width: 2),
               ),
@@ -455,6 +487,12 @@ class _RewardToast extends StatelessWidget {
 }
 
 /// Entrada suave de un bloque de la pantalla: fundido + desplazamiento corto.
+///
+/// Va atada a la animación de la ruta: arranca cuando el telón de la
+/// transición pixel termina de abrirse a la mitad (el header baja, la
+/// botonera sube y el marco aparece mientras se descubre el juego). Sin ruta
+/// animada (la primera pantalla, los tests) el bloque ya está en su lugar
+/// (la animación "siempre completa" da t = 1).
 class _Entrance extends StatelessWidget {
   const _Entrance({required this.from, required this.child});
 
@@ -463,18 +501,29 @@ class _Entrance extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: 1),
-      duration: const Duration(milliseconds: 500),
-      curve: Curves.easeOutCubic,
-      builder: (_, t, child) => Opacity(
-        opacity: t,
-        child: Transform.translate(
-          offset: Offset(from.dx * (1 - t), from.dy * (1 - t)),
-          child: child,
-        ),
-      ),
+    // Siempre la misma estructura (con o sin ruta animada): si el árbol
+    // cambiara de forma al terminar la transición, el juego se volvería a
+    // montar en el siguiente rebuild.
+    final animation =
+        ModalRoute.of(context)?.animation ?? kAlwaysCompleteAnimation;
+    return AnimatedBuilder(
+      animation: animation,
       child: child,
+      builder: (_, child) {
+        const reveal = PixelDissolveRoute.revealAt;
+        final t = Curves.easeOutCubic.transform(
+          ((animation.value - reveal) / (1 - reveal))
+              .clamp(0.0, 1.0)
+              .toDouble(),
+        );
+        return Opacity(
+          opacity: t,
+          child: Transform.translate(
+            offset: Offset(from.dx * (1 - t), from.dy * (1 - t)),
+            child: child,
+          ),
+        );
+      },
     );
   }
 }
@@ -520,7 +569,7 @@ class _PauseButton extends StatelessWidget {
                   height: 42,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: const Color(0xFF0B1224).withValues(alpha: 0.55),
+                    color: const Color(0xFF140E0C).withValues(alpha: 0.55),
                     border: Border.all(
                       color: Colors.white.withValues(alpha: 0.22),
                     ),
@@ -551,7 +600,7 @@ class _RunDiamondsChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(8, 4, 11, 4),
       decoration: BoxDecoration(
-        color: const Color(0xFF0B1224).withValues(alpha: 0.55),
+        color: const Color(0xFF140E0C).withValues(alpha: 0.55),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
       ),

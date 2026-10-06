@@ -3,10 +3,12 @@ import '../game/runner_game.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import 'ad_modal.dart';
+import 'pixel_ui.dart';
 
 /// Controla el FlameGame desde AFUERA del widget de juego, como pide la consigna.
 ///
-/// Cuatro botones "caramelo" con relieve 3D: se hunden al apretarlos.
+/// Cuatro botones de consola en un panel pixel: se hunden al apretarlos. El
+/// naranja queda para Jugar (lo principal); el azul noche es el botón de modo.
 class GameControls extends StatelessWidget {
   const GameControls({
     super.key,
@@ -26,27 +28,18 @@ class GameControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: scheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(28),
-          border: Border.all(
-            color: scheme.outlineVariant.withValues(alpha: 0.6),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: scheme.shadow.withValues(alpha: 0.12),
-              blurRadius: 16,
-              offset: const Offset(0, 6),
-            ),
-          ],
+      child: CustomPaint(
+        painter: PixelPanelPainter(
+          fill: isDark ? AppColors.headerDark : AppColors.headerLight,
+          border: PixelStyle.ink,
+          edge: isDark ? PixelStyle.panelEdge : const Color(0xFF7A5434),
         ),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
           child: Row(
             children: [
               Expanded(
@@ -54,8 +47,8 @@ class GameControls extends StatelessWidget {
                   tooltip: 'Jugar o continuar',
                   icon: Icons.play_arrow_rounded,
                   label: 'Jugar',
-                  color: AppColors.play,
-                  deep: AppColors.playDeep,
+                  color: AppColors.ctrlPlay,
+                  deep: AppColors.ctrlPlayDeep,
                   onPressed: game.resumeGame,
                 ),
               ),
@@ -64,8 +57,8 @@ class GameControls extends StatelessWidget {
                   tooltip: 'Pausa',
                   icon: Icons.pause_rounded,
                   label: 'Pausa',
-                  color: AppColors.pause,
-                  deep: AppColors.pauseDeep,
+                  color: AppColors.ctrlPause,
+                  deep: AppColors.ctrlPauseDeep,
                   onPressed: game.pauseGame,
                 ),
               ),
@@ -74,8 +67,8 @@ class GameControls extends StatelessWidget {
                   tooltip: 'Reiniciar partida',
                   icon: Icons.replay_rounded,
                   label: 'Reiniciar',
-                  color: AppColors.reset,
-                  deep: AppColors.resetDeep,
+                  color: AppColors.ctrlReset,
+                  deep: AppColors.ctrlResetDeep,
                   onPressed: () => _onRestart(context),
                 ),
               ),
@@ -115,9 +108,10 @@ class GameControls extends StatelessWidget {
   }
 }
 
-/// Botón con relieve: un "labio" oscuro debajo que desaparece al presionar,
-/// como si la tecla se hundiera.
-class _CandyButton extends StatefulWidget {
+/// Botón pixel de la botonera: ícono en tinta oscura sobre un color claro
+/// (contraste ≥ 4.5:1) y rótulo en la fuente pixel debajo. Al apretarlo se
+/// hunde un píxel (lo resuelve [PixelButton]).
+class _CandyButton extends StatelessWidget {
   const _CandyButton({
     required this.tooltip,
     required this.icon,
@@ -135,79 +129,37 @@ class _CandyButton extends StatefulWidget {
   final VoidCallback onPressed;
 
   @override
-  State<_CandyButton> createState() => _CandyButtonState();
-}
-
-class _CandyButtonState extends State<_CandyButton> {
-  static const double _lip = 5;
-  bool _pressed = false;
-
-  void _setPressed(bool value) {
-    if (_pressed != value) setState(() => _pressed = value);
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final labelColor = Theme.of(context).colorScheme.onSurfaceVariant;
-
     return Tooltip(
-      message: widget.tooltip,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapDown: (_) => _setPressed(true),
-        onTapUp: (_) => _setPressed(false),
-        onTapCancel: () => _setPressed(false),
-        onTap: widget.onPressed,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 90),
-                  curve: Curves.easeOut,
-                  width: 58,
-                  height: 52,
-                  margin: EdgeInsets.only(
-                    top: _pressed ? _lip : 0,
-                    bottom: _pressed ? 0 : _lip,
-                  ),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(18),
-                    gradient: LinearGradient(
-                      colors: [
-                        Color.lerp(widget.color, Colors.white, 0.22)!,
-                        widget.color,
-                      ],
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                    ),
-                    boxShadow: _pressed
-                        ? const []
-                        : [
-                            BoxShadow(
-                              color: widget.deep,
-                              offset: const Offset(0, _lip),
-                            ),
-                          ],
-                  ),
-                  child: Icon(widget.icon, size: 30, color: Colors.white),
-                ),
-              ],
-            ),
-            const SizedBox(height: 2),
-            Text(
-              widget.label,
-              style: TextStyle(
-                color: labelColor,
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.4,
+      message: tooltip,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          PixelButton(
+            onTap: onPressed,
+            semanticLabel: tooltip,
+            padding: EdgeInsets.zero,
+            fill: [Color.lerp(color, Colors.white, 0.28)!, color],
+            border: PixelStyle.ink,
+            edge: deep,
+            child: SizedBox(
+              width: 58,
+              height: 50,
+              child: Center(
+                child: Icon(icon, size: 30, color: AppColors.ink),
               ),
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 8),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              label,
+              maxLines: 1,
+              style: PixelStyle.text(8, color: PixelStyle.cream, height: 1.0),
+            ),
+          ),
+        ],
       ),
     );
   }

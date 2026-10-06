@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../state/game_state.dart';
 import '../widgets/diamond_shop_modal.dart';
 import '../widgets/menu_dialogs.dart';
+import '../widgets/pixel_transition.dart';
 import '../widgets/pixel_ui.dart';
 import '../widgets/rewards_modal.dart';
 import 'home_screen.dart';
@@ -54,20 +55,22 @@ class _StartScreenState extends State<StartScreen>
     super.dispose();
   }
 
-  void _play() {
+  /// Evita que un doble toque en JUGAR apile dos partidas.
+  bool _starting = false;
+
+  Future<void> _play() async {
+    if (_starting) return;
+    _starting = true;
     // Partida limpia (el récord y la billetera se conservan).
     widget.gameState.resetRun();
-    Navigator.of(context).push(
-      PageRouteBuilder<void>(
-        transitionDuration: const Duration(milliseconds: 380),
-        reverseTransitionDuration: const Duration(milliseconds: 250),
-        pageBuilder: (_, __, ___) => HomeScreen(gameState: widget.gameState),
-        transitionsBuilder: (_, animation, __, child) => FadeTransition(
-          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
-          child: child,
-        ),
+    // Telón de bloques: tapa el menú, y al abrirse el corredor ya está en su
+    // lugar listo para arrancar (ver HomeScreen / RunnerGame.launch).
+    await Navigator.of(context).push(
+      PixelDissolveRoute<void>(
+        builder: (_) => HomeScreen(gameState: widget.gameState),
       ),
     );
+    if (mounted) _starting = false;
   }
 
   @override

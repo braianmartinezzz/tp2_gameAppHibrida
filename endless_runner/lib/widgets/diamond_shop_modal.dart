@@ -26,7 +26,7 @@ void showDiamondShopModal(BuildContext context, GameState gameState) {
       amount: 1200,
       label: 'Mega',
       price: '\$9.99',
-      accent: Color(0xFFA06BFF),
+      accent: Color(0xFFFFC61F),
       gems: 3,
       tag: 'MEJOR VALOR',
     ),
@@ -37,7 +37,7 @@ void showDiamondShopModal(BuildContext context, GameState gameState) {
     isScrollControlled: true,
     showDragHandle: true,
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+      borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
     ),
     builder: (context) {
       final theme = Theme.of(context);
@@ -335,7 +335,7 @@ class _PackCard extends StatelessWidget {
                     onPressed: onBuy,
                     style: FilledButton.styleFrom(
                       backgroundColor: pack.accent,
-                      foregroundColor: Colors.white,
+                      foregroundColor: AppColors.ink,
                       minimumSize: const Size(0, 44),
                     ),
                     child: Text(pack.price),
@@ -357,7 +357,7 @@ class _PackCard extends StatelessWidget {
                   child: Text(
                     pack.tag!,
                     style: const TextStyle(
-                      color: Colors.white,
+                      color: AppColors.ink,
                       fontSize: 10,
                       fontWeight: FontWeight.w900,
                       letterSpacing: 0.8,

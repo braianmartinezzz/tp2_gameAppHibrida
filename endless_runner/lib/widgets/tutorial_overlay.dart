@@ -223,8 +223,8 @@ class _TutorialOverlayState extends State<TutorialOverlay>
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    const Color(0xFF05060F).withValues(alpha: 0.6),
-                    const Color(0xFF05060F).withValues(alpha: 0),
+                    const Color(0xFF0A0706).withValues(alpha: 0.6),
+                    const Color(0xFF0A0706).withValues(alpha: 0),
                   ],
                 ),
               ),
@@ -314,7 +314,7 @@ class _TutorialOverlayState extends State<TutorialOverlay>
               onPressed: _allDone ? null : _close,
               style: TextButton.styleFrom(
                 foregroundColor: Colors.white,
-                backgroundColor: const Color(0xFF0B1224).withValues(alpha: 0.55),
+                backgroundColor: const Color(0xFF140E0C).withValues(alpha: 0.55),
                 padding:
                     const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                 minimumSize: const Size(0, 36),
@@ -354,7 +354,7 @@ class _InstructionCard extends StatelessWidget {
       margin: const EdgeInsets.symmetric(horizontal: 20),
       padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
       decoration: BoxDecoration(
-        color: const Color(0xFF0B1224).withValues(alpha: 0.82),
+        color: const Color(0xFF140E0C).withValues(alpha: 0.82),
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: accent.withValues(alpha: 0.8), width: 2),
         boxShadow: [
@@ -443,7 +443,7 @@ class _InfoCard extends StatelessWidget {
       margin: const EdgeInsets.symmetric(horizontal: 20),
       padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
       decoration: BoxDecoration(
-        color: const Color(0xFF0B1224).withValues(alpha: 0.9),
+        color: const Color(0xFF140E0C).withValues(alpha: 0.9),
         borderRadius: BorderRadius.circular(22),
         border: Border.all(
             color: AppColors.gem.withValues(alpha: 0.8), width: 2),
@@ -605,7 +605,7 @@ class _SwipeHint extends StatelessWidget {
                     child: const Icon(
                       Icons.touch_app_rounded,
                       size: 30,
-                      color: Color(0xFF14122B),
+                      color: Color(0xFF181210),
                     ),
                   ),
                 ),

@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import 'diamond_shop_modal.dart';
+import 'pixel_ui.dart';
 import 'pro_upgrade_modal.dart';
 
 /// Barra superior: avatar, usuario, score, tipo de cuenta y diamantes.
 ///
-/// Degradé violeta con texto blanco (se ve igual en modo claro y oscuro),
-/// esquinas redondeadas abajo y una sombra suave que la separa del juego.
+/// Panel marrón oscuro con la fuente pixel y una línea naranja abajo, como
+/// los paneles de la pantalla de inicio (se ve igual en modo claro y oscuro,
+/// solo cambia el tono del marrón). Sombra dura, sin degradés suaves.
 class GameHeader extends StatelessWidget {
   const GameHeader({super.key, required this.gameState, this.onBeforeShop});
 
@@ -22,20 +24,18 @@ class GameHeader extends StatelessWidget {
     final colors = isDark ? AppColors.headerDark : AppColors.headerLight;
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: colors,
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
         ),
-        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(28)),
-        boxShadow: [
-          BoxShadow(
-            color: colors.last.withValues(alpha: 0.35),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
+        border: const Border(
+          bottom: BorderSide(color: AppColors.ember, width: 4),
+        ),
+        boxShadow: const [
+          BoxShadow(color: Color(0x66000000), offset: Offset(0, 4)),
         ],
       ),
       child: Row(
@@ -49,39 +49,48 @@ class GameHeader extends StatelessWidget {
               children: [
                 ValueListenableBuilder<String>(
                   valueListenable: gameState.username,
-                  builder: (_, name, __) => Text(
-                    name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
+                  builder: (_, name, __) => FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      name,
+                      maxLines: 1,
+                      style: PixelStyle.text(
+                        12,
+                        color: PixelStyle.cream,
+                        height: 1.2,
+                      ),
                     ),
                   ),
                 ),
-                const SizedBox(height: 3),
+                const SizedBox(height: 5),
                 Container(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.18),
-                    borderRadius: BorderRadius.circular(999),
+                    color: Colors.black.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: PixelStyle.panelEdge, width: 2),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       const Icon(Icons.star_rounded,
                           size: 14, color: AppColors.gold),
-                      const SizedBox(width: 3),
-                      ValueListenableBuilder<int>(
-                        valueListenable: gameState.score,
-                        builder: (_, score, __) => Text(
-                          'score: $score',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: ValueListenableBuilder<int>(
+                          valueListenable: gameState.score,
+                          builder: (_, score, __) => FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              'score: $score',
+                              style: PixelStyle.text(
+                                9,
+                                color: PixelStyle.cream,
+                                height: 1.0,
+                              ),
+                            ),
                           ),
                         ),
                       ),
@@ -129,27 +138,32 @@ class _Avatar extends StatelessWidget {
     return Container(
       width: 46,
       height: 46,
-      padding: const EdgeInsets.all(2.5),
-      decoration: const BoxDecoration(
-        shape: BoxShape.circle,
-        color: Colors.white,
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: PixelStyle.cream,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: PixelStyle.ink, width: 2),
       ),
       child: Container(
-        decoration: const BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: LinearGradient(
-            colors: [Color(0xFFFF8FA3), Color(0xFFFFB86B)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(3),
+          gradient: const LinearGradient(
+            colors: [PixelStyle.plankTop, PixelStyle.plankBottom],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
           ),
         ),
-        child: const Icon(Icons.person_rounded, color: Colors.white, size: 26),
+        child: const Icon(
+          Icons.person_rounded,
+          color: PixelStyle.plankInk,
+          size: 26,
+        ),
       ),
     );
   }
 }
 
-/// BASIC (translúcido) o PRO (dorado con corona).
+/// BASIC (translúcido) o PRO (tablón dorado con corona).
 class _AccountBadge extends StatelessWidget {
   const _AccountBadge({required this.type});
 
@@ -159,39 +173,37 @@ class _AccountBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final pro = type == 'pro';
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
         gradient: pro
             ? const LinearGradient(
-                colors: [AppColors.gold, AppColors.goldDeep],
+                colors: [PixelStyle.plankTop, PixelStyle.plankBottom],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
               )
             : null,
-        color: pro ? null : Colors.white.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(999),
-        border: pro
-            ? null
-            : Border.all(color: Colors.white.withValues(alpha: 0.35)),
+        color: pro ? null : PixelStyle.cream.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(
+          color: pro ? PixelStyle.plankBorder : PixelStyle.panelEdge,
+          width: 2,
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (pro) ...[
-            const Icon(Icons.workspace_premium_rounded,
-                size: 14, color: AppColors.goldInk),
-            const SizedBox(width: 3),
-          ],
-          if (!pro) ...[
-            const Icon(Icons.arrow_circle_up_rounded,
-                size: 14, color: Colors.white),
-            const SizedBox(width: 3),
-          ],
+          Icon(
+            pro ? Icons.workspace_premium_rounded : Icons.arrow_circle_up_rounded,
+            size: 14,
+            color: pro ? PixelStyle.plankInk : PixelStyle.cream,
+          ),
+          const SizedBox(width: 4),
           Text(
             type.toUpperCase(),
-            style: TextStyle(
-              color: pro ? AppColors.goldInk : Colors.white,
-              fontSize: 11,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 0.8,
+            style: PixelStyle.text(
+              9,
+              color: pro ? PixelStyle.plankInk : PixelStyle.cream,
+              height: 1.0,
             ),
           ),
         ],
@@ -209,45 +221,38 @@ class _DiamondPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(9, 4, 4, 4),
+      padding: const EdgeInsets.fromLTRB(8, 4, 4, 4),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           colors: [AppColors.gem, AppColors.gemDeep],
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
         ),
-        borderRadius: BorderRadius.circular(999),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.gemDeep.withValues(alpha: 0.5),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: AppColors.ink, width: 2),
+        boxShadow: const [
+          BoxShadow(color: Color(0x66000000), offset: Offset(0, 2)),
         ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.diamond_rounded, size: 16, color: Colors.white),
+          const Icon(Icons.diamond_rounded, size: 16, color: AppColors.ink),
           const SizedBox(width: 4),
           Text(
             '$diamonds',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 14,
-              fontWeight: FontWeight.w900,
-            ),
+            style: PixelStyle.text(11, color: AppColors.ink, height: 1.0),
           ),
           const SizedBox(width: 6),
           Container(
             width: 20,
             height: 20,
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
+            decoration: BoxDecoration(
+              color: AppColors.ink,
+              borderRadius: BorderRadius.circular(3),
             ),
-            child: const Icon(Icons.add_rounded,
-                size: 16, color: AppColors.gemDeep),
+            child:
+                const Icon(Icons.add_rounded, size: 16, color: AppColors.gem),
           ),
         ],
       ),

@@ -19,7 +19,7 @@ class RecordChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(4, 4, 12, 4),
       decoration: BoxDecoration(
-        color: const Color(0xFF0B1224).withValues(alpha: 0.55),
+        color: const Color(0xFF140E0C).withValues(alpha: 0.55),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
       ),

@@ -380,6 +380,33 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     add(_player);
   }
 
+  // --- Arranque suave --------------------------------------------------------
+
+  /// Segundos que tarda el mundo en pasar de quieto a la velocidad normal.
+  static const double launchDuration = 1.1;
+
+  /// 0 = mundo quieto, 1 = velocidad completa (arranque terminado).
+  double _launch = 1;
+  bool _launchWaiting = false;
+
+  /// true mientras el corredor espera o está tomando velocidad.
+  bool get isLaunching => _launch < 1;
+
+  /// Deja el mundo quieto (el corredor trota en el lugar) hasta que se llame a
+  /// [launch]. La pantalla de juego lo usa mientras el telón de la transición
+  /// todavía tapa el juego, así el arranque se ve completo.
+  void prepareLaunch() {
+    _launch = 0;
+    _launchWaiting = true;
+  }
+
+  /// Suelta el arranque: el mundo acelera con una curva suave hasta la
+  /// velocidad normal. Sin obstáculos, puntaje ni reloj de dificultad hasta
+  /// que termina.
+  void launch() {
+    _launchWaiting = false;
+  }
+
   @override
   void update(double dt) {
     // Pausa del usuario: el mundo queda congelado. El motor está parado, así
@@ -405,6 +432,19 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
 
     super.update(dt);
     _syncPerspective();
+
+    // Arranque suave: el piso espera quieto y después acelera con curva; las
+    // piernas del corredor van de trote lento a carrera.
+    if (_launch < 1) {
+      if (!_launchWaiting) {
+        _launch = min(1.0, _launch + dt / launchDuration);
+      }
+      final go = Curves.easeOutCubic.transform(_launch);
+      _player.runRate = 0.3 + 0.7 * go;
+      _map.update(dt, 260 * go, _perspective);
+      juice.update(dt);
+      return;
+    }
 
     if (tutorialActive) {
       // Tutorial: solo el piso y el corredor se mueven. No avanza el reloj de
@@ -1538,6 +1578,8 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
       _coinCooldown = 2.0;
       _powerUpCooldown = 10.0;
       _elapsed = 0;
+      _launch = 1; // un reinicio arranca ya a velocidad normal
+      _launchWaiting = false;
       _lastWasCar = false;
       _difficultySpeed = 260;
       _scoreCarry = 0;

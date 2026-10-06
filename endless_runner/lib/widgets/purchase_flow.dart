@@ -102,7 +102,7 @@ Future<bool> showPurchaseFlow(
     isDismissible: false,
     enableDrag: false,
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+      borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
     ),
     builder: (context) => _PurchaseSheet(
       item: item,

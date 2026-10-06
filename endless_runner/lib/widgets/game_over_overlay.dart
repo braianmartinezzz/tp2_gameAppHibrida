@@ -46,7 +46,7 @@ class GameOverOverlay extends StatelessWidget {
     final runDiamonds = gameState.runDiamonds.value;
 
     return Container(
-      color: const Color(0xFF05060F).withValues(alpha: 0.62),
+      color: const Color(0xFF0A0706).withValues(alpha: 0.62),
       alignment: Alignment.center,
       child: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(vertical: 16),
@@ -64,7 +64,7 @@ class GameOverOverlay extends StatelessWidget {
             margin: const EdgeInsets.symmetric(horizontal: 24),
             decoration: BoxDecoration(
               color: scheme.surface,
-              borderRadius: BorderRadius.circular(30),
+              borderRadius: BorderRadius.circular(10),
               boxShadow: const [
                 BoxShadow(
                   color: Colors.black54,
@@ -231,8 +231,8 @@ class _Banner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = newRecord
-        ? const [Color(0xFFFFB020), Color(0xFFFF6B8A)]
-        : const [Color(0xFF6C5CE7), Color(0xFF9B6BFF)];
+        ? const [Color(0xFFF08A0C), Color(0xFFC2410C)]
+        : const [Color(0xFF5A3A24), Color(0xFF3B2416)];
 
     return Container(
       width: double.infinity,
