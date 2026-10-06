@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flame/components.dart';
 import 'package:flutter/material.dart';
 
@@ -102,10 +104,14 @@ class CoinComponent extends DepthComponent {
     size.setValues(w, w);
   }
 
+  /// Tiempo acumulado (s) para animar flotación, halo y brillo.
+  double _time = 0;
+
   @override
   void update(double dt) {
     super.update(dt);
     advance(dt);
+    _time += dt;
     syncGeometry();
   }
 
@@ -121,15 +127,72 @@ class CoinComponent extends DepthComponent {
     // camión si la gema viaja anclada a uno.
     final groundY = anchored ? h + roofGap * depthScale : h + _bandMinPx;
 
+    // Las gemas elevadas ("en el aire") se anuncian solas: sombra marcada en
+    // el piso, línea guía hasta la gema, halo pulsante y flotación suave.
+    final hover = (elevated && _bandMinPx > 0)
+        ? math.sin(_time * 4.5 + lane * 2) * w * 0.10
+        : 0.0;
+
     // Sombra en el piso: separa la moneda del suelo y hace visible el salto.
+    // En las elevadas es más ancha y oscura, con un anillo que marca "acá
+    // abajo no llegás: saltá".
+    final shadowW = w * (elevated ? 1.05 : 0.8);
+    final double shadowH =
+        (groundY * 0.05 + 2).clamp(2.0, 9.0).toDouble() * (elevated ? 1.3 : 1.0);
     canvas.drawOval(
       Rect.fromCenter(
         center: Offset(w * 0.5, groundY),
-        width: w * 0.8,
-        height: (groundY * 0.05 + 2).clamp(2.0, 9.0),
+        width: shadowW,
+        height: shadowH,
       ),
-      Paint()..color = const Color(0xFF000000).withValues(alpha: 0.22 * a),
+      Paint()
+        ..color =
+            const Color(0xFF000000).withValues(alpha: (elevated ? 0.38 : 0.22) * a),
     );
+
+    if (elevated && _bandMinPx > 0) {
+      final pulse = 0.5 + 0.5 * math.sin(_time * 6);
+      // Anillo en el piso.
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: Offset(w * 0.5, groundY),
+          width: shadowW * (1.15 + 0.25 * pulse),
+          height: shadowH * (1.15 + 0.25 * pulse),
+        ),
+        Paint()
+          ..color = _gem.withValues(alpha: (0.35 + 0.3 * (1 - pulse)) * a)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = (w * 0.05).clamp(0.8, 2.5),
+      );
+
+      // Línea guía punteada gema -> piso: conecta visualmente la gema con su
+      // sombra, así se lee que flota a cierta altura.
+      final dash = (w * 0.16).clamp(1.5, 4.0);
+      final guide = Paint()
+        ..color = Colors.white.withValues(alpha: 0.55 * a)
+        ..strokeWidth = (w * 0.05).clamp(0.8, 2.0);
+      for (double y = h + hover + dash; y < groundY - dash; y += dash * 2) {
+        canvas.drawLine(Offset(w * 0.5, y), Offset(w * 0.5, y + dash), guide);
+      }
+
+      // Halo pulsante detrás de la gema.
+      final center = Offset(w * 0.5, h * 0.5 + hover);
+      final haloR = w * (0.95 + 0.2 * pulse);
+      final haloColor = isGolden ? _goldGem : _gem;
+      canvas.drawCircle(
+        center,
+        haloR,
+        Paint()
+          ..shader = RadialGradient(colors: [
+            haloColor.withValues(alpha: 0.65 * a),
+            haloColor.withValues(alpha: 0.0),
+          ]).createShader(Rect.fromCircle(center: center, radius: haloR)),
+      );
+    }
+
+    // Todo lo de la gema se dibuja desplazado por la flotación.
+    canvas.save();
+    canvas.translate(0, hover);
 
     // Gema (rombo) con contorno para que resalte en los dos temas.
     final gem = Path()
@@ -162,6 +225,20 @@ class CoinComponent extends DepthComponent {
       (w * 0.07).clamp(0.6, 3.0),
       Paint()..color = const Color(0xFFFFFFFF).withValues(alpha: 0.75 * a),
     );
+
+    // Destello que titila en las elevadas.
+    if (elevated) {
+      final tw = (math.sin(_time * 7) * 0.5 + 0.5);
+      final c = Offset(w * 0.72, h * 0.28);
+      final r = w * (0.10 + 0.14 * tw);
+      final sp = Paint()
+        ..color = Colors.white.withValues(alpha: (0.4 + 0.5 * tw) * a)
+        ..strokeWidth = (w * 0.05).clamp(0.8, 2.0);
+      canvas.drawLine(c.translate(-r, 0), c.translate(r, 0), sp);
+      canvas.drawLine(c.translate(0, -r), c.translate(0, r), sp);
+    }
+
+    canvas.restore();
   }
 
   static const Color _gem = Color(0xFF46DDF2);

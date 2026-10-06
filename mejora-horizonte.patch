@@ -1,0 +1,137 @@
+diff --git a/endless_runner/lib/game/map_renderer.dart b/endless_runner/lib/game/map_renderer.dart
+index e8accca..311561e 100644
+--- a/endless_runner/lib/game/map_renderer.dart
++++ b/endless_runner/lib/game/map_renderer.dart
+@@ -604,9 +604,9 @@ class MapRenderer {
+       offset: _time * 4 + sway * 0.05,
+       heights: _mesas,
+       maxHeight: vy * 0.62,
+-      paint: Paint()..color = c.ridgeFar,
++      paint: Paint()..color = Color.lerp(c.ridgeFar, c.haze, 0.40)!,
+       rim: Paint()
+-        ..color = c.ridgeLit.withValues(alpha: 0.75)
++        ..color = Color.lerp(c.ridgeLit, c.haze, 0.40)!.withValues(alpha: 0.75)
+         ..strokeWidth = 2
+         ..strokeCap = StrokeCap.round,
+     );
+@@ -627,7 +627,9 @@ class MapRenderer {
+       offset: _time * 6 + sway * 0.06 + 40,
+       heights: const [0.5, 0.9, 0.6, 1.0, 0.4],
+       maxHeight: vy * 0.24,
+-      paint: Paint()..color = Color.lerp(c.ridgeFar, c.duneNear, 0.55)!,
++      paint: Paint()
++        ..color = Color.lerp(
++            Color.lerp(c.ridgeFar, c.duneNear, 0.55)!, c.haze, 0.22)!,
+     );
+     _drawBumps(
+       canvas,
+@@ -637,25 +639,7 @@ class MapRenderer {
+       offset: _time * 9 + sway * 0.08,
+       heights: _dunes,
+       maxHeight: vy * 0.34,
+-      paint: Paint()..color = c.duneNear,
+-    );
+-
+-    // Diferenciación más clara del horizonte para reforzar el desierto.
+-    canvas.drawRect(
+-      Rect.fromLTWH(0, vy * 0.82, w, vy * 0.28),
+-      Paint()
+-        ..shader = ui.Gradient.linear(
+-          Offset(0, vy * 0.82),
+-          Offset(0, vy + vy * 0.28),
+-          [
+-            c.haze.withValues(alpha: 0.18),
+-            c.haze.withValues(alpha: 0.0),
+-          ],
+-        ),
+-    );
+-    canvas.drawRect(
+-      Rect.fromLTWH(0, vy - 4, w, 8),
+-      Paint()..color = c.ridgeLit.withValues(alpha: 0.12),
++      paint: Paint()..color = Color.lerp(c.duneNear, c.haze, 0.06)!,
+     );
+ 
+     // 6) Arena fuera de la ruta -------------------------------------------------
+@@ -741,31 +725,51 @@ class MapRenderer {
+     }
+     canvas.restore();
+ 
+-    // 9) Props de desierto (lejos primero: los cercanos pisan a los lejanos) ---
+-    _drawProps(canvas, p, c, sway: sway);
+-
+-    // 10) Bruma de distancia + resplandor del horizonte --------------------------
+-    canvas.drawRect(
+-      Rect.fromLTWH(0, vy, w, p.corridorHeight * 0.18),
++    // Loma al final de la ruta: la carretera se pierde detrás de una lomada
++    // baja en vez de terminar en punta contra una línea recta. El borde
++    // inferior se desvanece para no dejar costura sobre la arena.
++    final hillTop = vy - vy * 0.10;
++    final hillBase = vy + p.corridorHeight * 0.045;
++    final hillHalf = w * 0.24;
++    final hillColor = Color.lerp(
++        Color.lerp(c.sandFar, c.duneNear, 0.45)!, c.haze, 0.18)!;
++    canvas.drawPath(
++      Path()
++        ..moveTo(vx - hillHalf, hillBase)
++        ..quadraticBezierTo(vx, hillTop - (hillBase - hillTop), vx + hillHalf,
++            hillBase)
++        ..close(),
+       Paint()
+         ..shader = ui.Gradient.linear(
+-          Offset(0, vy),
+-          Offset(0, vy + p.corridorHeight * 0.18),
+-          [c.haze.withValues(alpha: 0.40), c.haze.withValues(alpha: 0.0)],
++          Offset(0, hillTop),
++          Offset(0, hillBase),
++          [hillColor, hillColor, hillColor.withValues(alpha: 0.0)],
++          [0.0, 0.6, 1.0],
+         ),
+     );
++
++    // 9) Props de desierto (lejos primero: los cercanos pisan a los lejanos) ---
++    _drawProps(canvas, p, c, sway: sway);
++
++    // 10) Bruma del horizonte: una sola banda (antes eran cuatro franjas
++    // translúcidas apiladas, que ensuciaban el borde). Es más densa justo en
++    // el horizonte y se disuelve hacia el cielo y hacia la ruta; al morir
++    // pronto no tapa diamantes ni obstáculos que recién aparecen.
++    final hazeTop = vy - vy * 0.38;
++    final hazeBottom = vy + p.corridorHeight * 0.12;
++    final hazePeak = (vy - hazeTop) / (hazeBottom - hazeTop);
+     canvas.drawRect(
+-      Rect.fromLTWH(0, vy - 16, w, 32),
++      Rect.fromLTRB(0, hazeTop, w, hazeBottom),
+       Paint()
+         ..shader = ui.Gradient.linear(
+-          Offset(0, vy - 16),
+-          Offset(0, vy + 16),
++          Offset(0, hazeTop),
++          Offset(0, hazeBottom),
+           [
+             c.haze.withValues(alpha: 0.0),
+-            c.haze.withValues(alpha: 0.25),
++            c.haze.withValues(alpha: 0.55),
+             c.haze.withValues(alpha: 0.0),
+           ],
+-          [0.0, 0.5, 1.0],
++          [0.0, hazePeak, 1.0],
+         ),
+     );
+   }
+@@ -1028,12 +1032,14 @@ class MapRenderer {
+     required double baseY,
+     required double offset,
+     required _Palette c,
++    double fade = 0.55,
+   }) {
+     const period = 520.0;
+     final first = (offset / period).floor() - 1;
+     final slots = (w / period).ceil() + 3;
+-    final lit = Paint()..color = c.pyrLit;
+-    final shade = Paint()..color = c.pyrShade;
++    // Perspectiva atmosférica: lo más lejano se funde con la bruma.
++    final lit = Paint()..color = Color.lerp(c.pyrLit, c.haze, fade)!;
++    final shade = Paint()..color = Color.lerp(c.pyrShade, c.haze, fade)!;
+     for (var i = 0; i < slots; i++) {
+       final x = (first + i) * period - offset;
+       for (final (dx, half, hf) in const [
