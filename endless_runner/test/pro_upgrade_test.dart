@@ -5,6 +5,8 @@ import 'package:runner_flutter/state/game_state.dart';
 import 'package:runner_flutter/state/settings_store.dart';
 import 'package:runner_flutter/widgets/game_header.dart';
 
+import 'purchase_test_helpers.dart';
+
 class _FakeStore extends SettingsStore {
   _FakeStore({this.initial});
 
@@ -78,6 +80,7 @@ void main() {
   group('Mejorar a Pro (UI)', () {
     testWidgets('tocar el badge BASIC abre el menú y comprar pasa a Pro',
         (tester) async {
+      useTallSurface(tester);
       final state = GameState();
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(body: GameHeader(gameState: state)),
@@ -87,8 +90,12 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Mejorar a Pro'), findsOneWidget);
       expect(find.text('Sin anuncios'), findsOneWidget);
+      expect(find.text('Pagar ${GameState.proPrice}'), findsOneWidget);
 
-      await tester.tap(find.byKey(const ValueKey('pro-buy-button')));
+      await tester.tap(find.byKey(const ValueKey('purchase-pay-button')));
+      await tester.pumpAndSettle();
+      expect(state.isPro, isFalse, reason: 'falta la puerta parental');
+      await solveParentalGate(tester);
       await tester.pump(); // arranca el "pago"
       expect(find.text('Procesando el pago…'), findsOneWidget);
       expect(state.isPro, isFalse);
@@ -98,12 +105,13 @@ void main() {
       expect(state.isPro, isTrue);
       expect(find.text('¡Ya sos Pro!'), findsOneWidget);
 
-      await tester.tap(find.byKey(const ValueKey('pro-done-button')));
+      await tester.tap(find.byKey(const ValueKey('purchase-done-button')));
       await tester.pumpAndSettle();
       expect(find.text('PRO'), findsOneWidget);
     });
 
     testWidgets('"Ahora no" cierra sin cambiar la cuenta', (tester) async {
+      useTallSurface(tester);
       final state = GameState();
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(body: GameHeader(gameState: state)),
@@ -111,11 +119,50 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey('account-badge')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('pro-close-button')));
+      await tester.tap(find.byKey(const ValueKey('purchase-cancel-button')));
       await tester.pumpAndSettle();
 
       expect(state.isPro, isFalse);
       expect(find.text('Mejorar a Pro'), findsNothing);
+    });
+
+    testWidgets('pago rechazado: la cuenta sigue basic', (tester) async {
+      useTallSurface(tester);
+      final state = GameState();
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: GameHeader(gameState: state)),
+      ));
+
+      await tester.tap(find.byKey(const ValueKey('account-badge')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('purchase-reject-toggle')));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('purchase-pay-button')));
+      await tester.pumpAndSettle();
+      await solveParentalGate(tester);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 1500));
+      await tester.pumpAndSettle();
+
+      expect(find.text('No pudimos procesar el pago'), findsOneWidget);
+      expect(state.isPro, isFalse);
+    });
+
+    testWidgets('si ya es Pro, el menú muestra los beneficios sin cobrar',
+        (tester) async {
+      useTallSurface(tester);
+      final state = GameState()..upgradeToPro();
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: GameHeader(gameState: state)),
+      ));
+
+      await tester.tap(find.byKey(const ValueKey('account-badge')));
+      await tester.pumpAndSettle();
+      expect(find.text('Tu cuenta es Pro'), findsOneWidget);
+      expect(find.byKey(const ValueKey('purchase-pay-button')), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('pro-done-button')));
+      await tester.pumpAndSettle();
+      expect(find.text('Tu cuenta es Pro'), findsNothing);
     });
   });
 }

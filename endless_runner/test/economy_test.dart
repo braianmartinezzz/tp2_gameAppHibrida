@@ -387,23 +387,36 @@ void main() {
       await tester.binding.setSurfaceSize(null);
     });
 
-    testWidgets('el botón Premios muestra el globito de pendientes',
+    testWidgets(
+        'la botonera no tiene Premios y los rótulos están en español; '
+        'Premios se abre desde el game over con el número de pendientes',
         (tester) async {
       await tester.binding.setSurfaceSize(const Size(480, 760));
       final state = GameState(clock: () => today)..tutorialSeen.value = true;
       await tester.pumpWidget(MaterialApp(home: HomeScreen(gameState: state)));
       await tester.pump(const Duration(milliseconds: 600));
-      final badge = find.descendant(
-        of: find.byType(GameControls),
-        matching: find.text('1'),
-      );
-      expect(find.text('Premios'), findsOneWidget);
-      expect(badge, findsNothing);
+
+      Finder inControls(String text) => find.descendant(
+            of: find.byType(GameControls),
+            matching: find.text(text),
+          );
+      expect(inControls('Premios'), findsNothing);
+      for (final label in ['Jugar', 'Pausa', 'Reiniciar']) {
+        expect(inControls(label), findsOneWidget);
+      }
+      for (final english in ['Play', 'Pause', 'Reset']) {
+        expect(inControls(english), findsNothing);
+      }
 
       _complete(state, state.challenges.first);
       await tester.pump();
       expect(state.claimable.value, 1);
-      expect(badge, findsOneWidget);
+
+      state.finishRun();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byKey(const ValueKey('rewards-button')), findsOneWidget);
+      expect(find.text('Premios (1)'), findsOneWidget);
       await tester.binding.setSurfaceSize(null);
     });
 

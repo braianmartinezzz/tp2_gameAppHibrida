@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../state/game_state.dart';
 import '../state/rewards.dart';
 import '../theme/app_theme.dart';
+import 'purchase_flow.dart';
 
 /// Monetización simulada con packs, precio ficticio y CTA de compra.
 void showDiamondShopModal(BuildContext context, GameState gameState) {
@@ -105,10 +106,27 @@ void showDiamondShopModal(BuildContext context, GameState gameState) {
                   padding: const EdgeInsets.only(bottom: 12),
                   child: _PackCard(
                     pack: pack,
-                    onBuy: () {
-                      gameState.addDiamonds(pack.amount);
-                      Navigator.of(context).pop();
-                    },
+                    // El pack pasa por el flujo de pago (puerta parental,
+                    // procesando, resultado) y la tienda queda abierta.
+                    onBuy: () => showPurchaseFlow(
+                      context,
+                      PurchaseItem(
+                        title: '${pack.amount} diamantes',
+                        price: pack.price,
+                        icon: _GemStack(gems: pack.gems, color: pack.accent),
+                        summary: Text(
+                          'Pack ${pack.label}: sumás ${pack.amount} diamantes '
+                          'a tu billetera.',
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                        onPaid: () => gameState.addDiamonds(pack.amount),
+                        successTitle: '¡Listo! +${pack.amount} diamantes',
+                        successSubtitle: 'Ya están en tu billetera',
+                        accent: pack.accent,
+                        onAccent: Colors.white,
+                      ),
+                    ),
                   ),
                 ),
               ),

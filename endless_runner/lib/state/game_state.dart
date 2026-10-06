@@ -47,8 +47,10 @@ class GameState {
   /// y la basic también puede revivir viendo un anuncio.
   static const int reviveDiamondCost = 60;
 
-  /// Precio (simulado) del pase a Pro, pago único.
-  static const String proPrice = '\$2.99';
+  /// Precio (simulado) del pase a Pro, pago único. Igual al pack Boost de
+  /// diamantes: Pro trae sin anuncios, revivir gratis y un corazón extra, así
+  /// que no puede costar menos que un pack.
+  static const String proPrice = '\$4.99';
 
   /// Anuncios voluntarios con premio por día.
   static const int maxAdsPerDay = 5;

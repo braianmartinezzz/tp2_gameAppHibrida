@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+import 'rewards_modal.dart';
 
 /// Resumen de la partida terminada (Fase 4): puntaje final, récord con su
 /// medalla de "nuevo récord", diamantes ganados en la corrida y el botón para
@@ -185,6 +186,28 @@ class GameOverOverlay extends StatelessWidget {
                           onPressed: onRestart,
                           icon: const Icon(Icons.replay_rounded),
                           label: const Text('Reintentar'),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      // Los premios se cobran acá (no en la botonera, que es
+                      // solo para controlar el juego). El número avisa
+                      // cuántos hay para cobrar.
+                      SizedBox(
+                        width: double.infinity,
+                        child: ValueListenableBuilder<int>(
+                          valueListenable: gameState.claimable,
+                          builder: (_, pending, __) => OutlinedButton.icon(
+                            key: const ValueKey('rewards-button'),
+                            onPressed: () =>
+                                showRewardsModal(context, gameState),
+                            icon: const Icon(
+                              Icons.card_giftcard_rounded,
+                              color: AppColors.goldDeep,
+                            ),
+                            label: Text(
+                              pending > 0 ? 'Premios ($pending)' : 'Premios',
+                            ),
+                          ),
                         ),
                       ),
                     ],
