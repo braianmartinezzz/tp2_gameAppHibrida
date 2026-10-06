@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Vibración del teléfono al chocar (la pide el plugin `vibration`). -->
+    <uses-permission android:name="android.permission.VIBRATE"/>
     <application
         android:label="Zombie RUN"
         android:name="${applicationName}"

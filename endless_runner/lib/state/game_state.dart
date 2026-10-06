@@ -103,6 +103,11 @@ class GameState {
   /// el resto del progreso.
   final ValueNotifier<bool> musicEnabled = ValueNotifier(true);
 
+  /// Vibración del teléfono al chocar prendida (Ajustes). Es el único que
+  /// decide si [GameHaptics] vibra o no: el interruptor corta al instante y se
+  /// guarda con el resto del progreso.
+  final ValueNotifier<bool> hapticsEnabled = ValueNotifier(true);
+
   /// Multiplicador de sensibilidad de los gestos: valores altos aceptan
   /// deslizamientos más cortos.
   final ValueNotifier<double> swipeSensitivity =
@@ -402,6 +407,7 @@ class GameState {
   Map<String, dynamic> toJson() => {
         'tutorialSeen': tutorialSeen.value,
         'music': musicEnabled.value,
+        'haptics': hapticsEnabled.value,
         'swipeSensitivity': swipeSensitivity.value,
         'theme': switch (themeMode.value) {
           ThemeMode.system => 'system',
@@ -426,6 +432,10 @@ class GameState {
     // (prendida) y no se pisa nada.
     final music = json['music'];
     if (music is bool) musicEnabled.value = music;
+    // Vibración guardada. Saves viejos no traen la clave: se respeta el default
+    // (prendida) y no se pisa nada.
+    final haptics = json['haptics'];
+    if (haptics is bool) hapticsEnabled.value = haptics;
     // Tema guardado. Saves viejos no traen la clave: se respeta el default
     // (system) y no se pisa nada.
     final savedTheme = json['theme'];
@@ -536,6 +546,7 @@ class GameState {
     // Ajustes.
     tutorialSeen.value = false;
     musicEnabled.value = true;
+    hapticsEnabled.value = true;
     swipeSensitivity.value = defaultSensitivity;
     themeMode.value = ThemeMode.system;
 
@@ -564,6 +575,13 @@ class GameState {
   void setMusicEnabled(bool value) {
     if (musicEnabled.value == value) return;
     musicEnabled.value = value;
+    save();
+  }
+
+  /// Prende o apaga la vibración al chocar y lo persiste.
+  void setHapticsEnabled(bool value) {
+    if (hapticsEnabled.value == value) return;
+    hapticsEnabled.value = value;
     save();
   }
 

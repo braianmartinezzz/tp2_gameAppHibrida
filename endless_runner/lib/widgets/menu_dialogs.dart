@@ -266,6 +266,52 @@ class SettingsContent extends StatelessWidget {
           style: PixelStyle.text(8, color: PixelStyle.creamDim, height: 1.6),
         ),
         const SizedBox(height: 20),
+        const _Label('VIBRACIÓN'),
+        ValueListenableBuilder<bool>(
+          valueListenable: gameState.hapticsEnabled,
+          builder: (_, enabled, __) => Row(
+            children: [
+              for (final (value, label) in const [
+                (true, 'SÍ'),
+                (false, 'NO'),
+              ])
+                Expanded(
+                  child: Padding(
+                    padding: EdgeInsets.only(right: value ? 8 : 0),
+                    child: PixelButton(
+                      semanticLabel: 'Vibración $label',
+                      pixel: 2,
+                      padding: const EdgeInsets.symmetric(vertical: 11),
+                      fill: enabled == value
+                          ? const [PixelStyle.plankTop, PixelStyle.plankBottom]
+                          : const [PixelStyle.panel, PixelStyle.panelDeep],
+                      border: enabled == value
+                          ? PixelStyle.plankBorder
+                          : PixelStyle.ink,
+                      onTap: () => gameState.setHapticsEnabled(value),
+                      child: Center(
+                        child: Text(
+                          label,
+                          style: PixelStyle.text(
+                            9,
+                            color: enabled == value
+                                ? PixelStyle.plankInk
+                                : PixelStyle.cream,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'El teléfono vibra al chocar contra un obstáculo o un zombi.',
+          style: PixelStyle.text(8, color: PixelStyle.creamDim, height: 1.6),
+        ),
+        const SizedBox(height: 20),
         const _Label('TUTORIAL'),
         ValueListenableBuilder<bool>(
           valueListenable: gameState.tutorialSeen,

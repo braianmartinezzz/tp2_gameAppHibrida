@@ -3,6 +3,7 @@ import 'package:flame/game.dart';
 import 'package:flame/events.dart';
 import 'package:flutter/material.dart';
 import '../audio/game_music.dart';
+import '../haptics/game_haptics.dart';
 import '../state/game_state.dart';
 import '../state/rewards.dart';
 import 'chase_horde.dart';
@@ -30,7 +31,9 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     this.zombiesEnabled = true,
     this.trucksEnabled = true,
     GameMusic? music,
-  }) : music = music ?? GameMusic() {
+    GameHaptics? haptics,
+  })  : music = music ?? GameMusic(),
+        haptics = haptics ?? GameHaptics() {
     // El tema se escucha desde el minuto cero (no recién cuando el motor
     // arranca) y el fundido nace en el modo efectivo: así la primera vez que
     // se dibuja el desierto ya sale con el día o la noche que corresponde.
@@ -152,6 +155,22 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     } else {
       music.pause();
     }
+  }
+
+  // --- Vibración -------------------------------------------------------------
+
+  /// Vibración del teléfono al chocar (`package:vibration`): obstáculo, zombi
+  /// o camión. Se puede inyectar (tests) para escuchar qué cue manda el juego
+  /// a disparar, igual que [music].
+  final GameHaptics haptics;
+
+  /// Dispara [cue] si el usuario dejó la vibración prendida en Ajustes.
+  ///
+  /// Un solo lugar para la política: el interruptor vive en [GameState] y el
+  /// motor no decide nada más.
+  void _haptic(HapticCue cue) {
+    if (!gameState.hapticsEnabled.value) return;
+    haptics.play(cue); // sin await: el juego no se frena por la vibración
   }
 
   late PlayerComponent _player;
@@ -630,6 +649,8 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
       // resultado, actualiza el récord y deja correr el juice de la muerte.
       gameState.finishRun();
       juice.death(Offset(_player.position.x, _player.position.y));
+      // Vibración de muerte: la misma que el último choque (ver [_onCollision]).
+      _haptic(HapticCue.death);
       _deathTimer = _deathGrace;
     }
   }
@@ -1103,9 +1124,11 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     final at = Offset(_player.position.x, _player.position.y);
 
     // Primero intenta el escudo: si absorbe, el golpe no cuenta (y deja un
-    // respiro de invulnerabilidad).
+    // respiro de invulnerabilidad). Igual se siente en la mano: un toque
+    // corto, más seco que el golpe que cuesta vida.
     if (powerUps.absorbHit()) {
       juice.shieldAbsorb(at);
+      _haptic(HapticCue.shield);
       return;
     }
 
@@ -1115,6 +1138,9 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
     if (gameState.loseLife() > 0) {
       powerUps.grantInvulnerability();
       juice.hitPaid(at);
+      // Vibración del choque: la misma sea cual sea el obstáculo (valla,
+      // contenedor, auto, camión o zombi), porque los cues son por impacto.
+      _haptic(HapticCue.hit);
       // Tropezar deja a la horda más cerca (el escudo no: ya absorbió).
       if (hordeEnabled) horde.stumble();
     } else {
@@ -1122,6 +1148,8 @@ class RunnerGame extends FlameGame with PanDetector, HasCollisionDetection {
       // actualiza el récord y deja isGameOver en true para el overlay.
       gameState.finishRun();
       juice.death(at);
+      // La muerte vibra más largo: cierra la corrida por fuera de la pantalla.
+      _haptic(HapticCue.death);
       _deathTimer = _deathGrace;
       // El motor NO se pausa acá: lo hace update() cuando el juice de la
       // muerte termina de disiparse (ver [_deathGrace]).
