@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import '../theme/app_theme.dart' show AppColors;
 import 'perspective.dart';
 
 /// Dibuja el mapa 2.5D del corredor en ambiente 🏜️ desierto / carretera:
@@ -20,10 +21,11 @@ import 'perspective.dart';
 ///     que pasan a izquierda y derecha en la misma coordenada de mundo que
 ///     el asfalto (sensación de carretera en movimiento),
 ///  7. bruma de distancia que suaviza el horizonte,
-///  8. detalles simpáticos para el público infantil: sol sonriente con rayos,
-///     pájaros y globo aerostático de día, estrella fugaz de noche,
-///     pirámides lejanas, cordones rojo/blanco en la orilla del asfalto,
-///     cactus con carita y florcitas, matas y piedritas junto al camino,
+///  8. ambientación de fin del mundo: sol sucio velado por el humo, cuervos
+///     de día, estrella fugaz de noche, pirámides lejanas, resplandor de
+///     incendios al pie de las columnas de humo (el naranja brasa de la
+///     marca), nubes de ceniza, cordones gastados en la orilla del asfalto,
+///     matas, piedritas y huesos junto al camino,
 ///  9. **detalles del asfalto** (grietas, manchas de aceite, frenadas, arena
 ///     que invade la ruta y parches), que viajan en coordenada de mundo,
 /// 10. **biomas por distancia**: desierto → ruinas → cañón → desierto...
@@ -597,6 +599,7 @@ class MapRenderer {
 
     // 4) Nubes de ceniza, humo lejano y cuervos -------------------------------------------------
     _drawClouds(canvas, w: w, baseY: vy, c: c, sway: sway);
+    _drawHorizonFire(canvas, w: w, vy: vy, c: c);
     _drawSmokeColumns(canvas, w: w, vy: vy, c: c);
     if (c.night < 1) {
       // De día vuelan; durante el fundido se desvanecen con la luz.
@@ -707,6 +710,9 @@ class MapRenderer {
     // Detalles del asfalto (grietas, aceite, frenadas, arena, parches).
     if (drawDecals) _drawRoadDecals(canvas, p, c);
 
+    // Huellas gastadas de neumáticos: dan profundidad y guían el carril.
+    if (drawDecals) _drawTireWear(canvas, p);
+
     // Bandas de velocidad en coordenada de mundo: lo que hace leer la marcha.
     final stripePaint = Paint();
     for (final z in _stripes) {
@@ -776,6 +782,46 @@ class MapRenderer {
           [0.0, hazePeak, 1.0],
         ),
     );
+  }
+
+  /// Resplandor de los incendios al pie de cada columna de humo: un óvalo
+  /// naranja brasa (el acento de la marca) que parpadea y queda DETRÁS de las
+  /// mesetas y de las dunas, así las siluetas se ven a contraluz. De día es
+  /// apenas un tinte cálido; de noche es lo que más ilumina el horizonte.
+  void _drawHorizonFire(
+    Canvas canvas, {
+    required double w,
+    required double vy,
+    required _Palette c,
+  }) {
+    final strength = 0.12 + 0.30 * c.night;
+    for (final (fx, hf, phase) in const [
+      (0.16, 0.78, 0.0),
+      (0.58, 0.62, 1.7),
+      (0.90, 0.70, 3.1),
+    ]) {
+      // Dos senos desfasados: parpadeo irregular, sin patrón evidente.
+      final flicker =
+          0.86 + 0.14 * sin(_time * 3.1 + phase * 2.3) * sin(_time * 1.7 + phase);
+      final r = w * 0.17 * (0.8 + 0.4 * hf);
+      canvas.save();
+      canvas.translate(w * fx, vy);
+      canvas.scale(1.0, 0.55); // óvalo chato: el fuego está lejos, en el piso
+      canvas.drawCircle(
+        Offset.zero,
+        r,
+        Paint()
+          ..shader = ui.Gradient.radial(
+            Offset.zero,
+            r,
+            [
+              AppColors.ember.withValues(alpha: strength * flicker),
+              AppColors.ember.withValues(alpha: 0.0),
+            ],
+          ),
+      );
+      canvas.restore();
+    }
   }
 
   /// Columnas de humo lejanas sobre el horizonte: ciudades que se queman.
@@ -864,6 +910,25 @@ class MapRenderer {
       );
       final y = _wrap(fy * h + _time * (18 + (i % 5) * 7), h);
       canvas.drawCircle(Offset(x, y), 0.8 + (i % 3) * 0.5, ash);
+    }
+
+    // Brasas: chispas naranjas que suben despacio y se apagan (el acento de
+    // la marca, también en el mapa). Pocas y chicas para no tapar el juego.
+    final spark = Paint();
+    for (var i = 0; i < 9; i++) {
+      final fx = _wrap(sin(i * 91.345) * 15731.743, 1.0);
+      final fy = _wrap(sin(i * 37.719) * 9631.129, 1.0);
+      final speed = 0.035 + (i % 4) * 0.012; // fracción de pantalla por s
+      final rise = _wrap(fy - _time * speed, 1.0); // 1 = abajo, 0 = arriba
+      final x = fx * w + sin(_time * 1.3 + i * 2.1) * 12;
+      final y = rise * h;
+      final life = sin(rise * pi); // nace y muere suave en los extremos
+      final glint = 0.6 + 0.4 * sin(_time * 7 + i * 1.9);
+      final color = Color.lerp(AppColors.ember, AppColors.gold, (i % 3) / 2)!;
+      spark.color = color.withValues(alpha: 0.22 * life * glint);
+      canvas.drawCircle(Offset(x, y), 2.6, spark);
+      spark.color = color.withValues(alpha: 0.85 * life * glint);
+      canvas.drawCircle(Offset(x, y), 1.0, spark);
     }
   }
 
@@ -955,8 +1020,8 @@ class MapRenderer {
     );
   }
 
-  /// Nubes esponjosas: varios óvalos en UN solo path (no se oscurecen donde
-  /// se superponen, aunque el color sea translúcido) más una sombrita abajo.
+  /// Bancos de ceniza: varios óvalos chatos en UN solo path (no se oscurecen
+  /// donde se superponen, aunque el color sea translúcido) más una sombrita.
   void _drawClouds(
     Canvas canvas, {
     required double w,
@@ -972,26 +1037,23 @@ class MapRenderer {
       final x = ((raw % span) + span) % span - 120;
       final y = cloud.yFrac * baseY;
       final s = cloud.scale;
+      // Bancos de ceniza: óvalos largos y chatos (nada de algodones).
       final path = Path()
         ..addOval(Rect.fromCenter(
-            center: Offset(x, y), width: 64 * s, height: 22 * s))
+            center: Offset(x, y), width: 96 * s, height: 13 * s))
         ..addOval(Rect.fromCenter(
-            center: Offset(x - 22 * s, y + 4 * s),
-            width: 40 * s,
-            height: 18 * s))
+            center: Offset(x - 30 * s, y + 4 * s),
+            width: 58 * s,
+            height: 10 * s))
         ..addOval(Rect.fromCenter(
-            center: Offset(x + 24 * s, y + 3 * s),
+            center: Offset(x + 34 * s, y + 3 * s),
+            width: 62 * s,
+            height: 11 * s))
+        ..addOval(Rect.fromCenter(
+            center: Offset(x + 6 * s, y - 5 * s),
             width: 44 * s,
-            height: 19 * s))
-        ..addOval(Rect.fromCenter(
-            center: Offset(x - 6 * s, y - 8 * s),
-            width: 34 * s,
-            height: 22 * s))
-        ..addOval(Rect.fromCenter(
-            center: Offset(x + 12 * s, y - 5 * s),
-            width: 28 * s,
-            height: 18 * s));
-      canvas.drawPath(path.shift(Offset(0, 3 * s)), shade);
+            height: 10 * s));
+      canvas.drawPath(path.shift(Offset(0, 2 * s)), shade);
       canvas.drawPath(path, fill);
     }
   }
@@ -1676,8 +1738,9 @@ class MapRenderer {
     );
   }
 
-  /// Cartel de ruta: poste, panel con borde rojo y, cuando está cerca, un
-  /// iconito de cactus (si no, dos barras que simulan texto).
+  /// Cartel de ruta: poste, panel con borde rojo y, cuando está cerca, una
+  /// calavera en píxeles (aviso de zona infectada, en el estilo 8 bits de los
+  /// zombies). Si está lejos, dos barras que simulan texto.
   void _drawSign(
     Canvas canvas,
     Rect body,
@@ -1725,34 +1788,24 @@ class MapRenderer {
     );
 
     if (w >= 14) {
-      // Iconito de cactus, apagado por el sol y el polvo.
-      final green = Paint()
-        ..color = const Color(0xFF3F4A38).withValues(alpha: alpha);
-      final icoW = max(2.0, w * 0.12);
-      final icoTop = body.top + panelH * 0.46;
-      final icoH = panelH * 0.42;
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(cx - icoW * 0.5, icoTop, icoW, icoH),
-          Radius.circular(icoW * 0.5),
-        ),
-        green,
-      );
-      for (final dir in const [-1.0, 1.0]) {
-        final armW = icoW * 0.9;
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(
-            Rect.fromLTWH(
-              dir > 0 ? cx + icoW * 0.5 - 0.5 : cx - icoW * 0.5 - armW + 0.5,
-              icoTop + icoH * 0.35,
-              armW,
-              icoW * 0.7,
-            ),
-            Radius.circular(icoW * 0.35),
-          ),
-          green,
-        );
+      // Calavera de 7x6 píxeles. Los ojos son huecos por los que se ve el
+      // panel; va en UN solo path para que los bordes no se oscurezcan.
+      const rows = ['0111110', '1111111', '1001001', '1111111', '0111110', '0101010'];
+      final cell = max(1.0, min(w * 0.46 / 7, panelH * 0.42 / rows.length));
+      final ox = cx - cell * 3.5;
+      final oy = body.top + panelH * 0.44;
+      final skull = Path();
+      for (var r = 0; r < rows.length; r++) {
+        for (var q = 0; q < 7; q++) {
+          if (rows[r][q] != '1') continue;
+          skull.addRect(Rect.fromLTWH(
+              ox + q * cell, oy + r * cell, cell + 0.4, cell + 0.4));
+        }
       }
+      canvas.drawPath(
+        skull,
+        Paint()..color = const Color(0xFF2A2420).withValues(alpha: 0.9 * alpha),
+      );
     } else {
       canvas.drawRRect(
         RRect.fromRectAndRadius(
@@ -2329,6 +2382,48 @@ class MapRenderer {
   }
 
   // --- Marcas viales ----------------------------------------------------------
+
+  /// Dos huellas oscuras por carril (donde pasan las ruedas), en tramos con
+  /// huecos y desgaste irregular. Corren en coordenada de mundo igual que los
+  /// bordes y se desvanecen con la distancia. Van bajo las divisorias y no
+  /// pisan el hombro: el recorte al asfalto lo hace quien llama.
+  void _drawTireWear(Canvas canvas, Perspective p) {
+    const ink = Color(0xFF05060A);
+    const zMax = 24.0;
+    final phase = _wrap(-_dashTravel, _edgePeriod);
+    final id0 = (_dashTravel / _edgePeriod).ceil();
+    var salt = 20;
+    for (final center in const [-1.0, 0.0, 1.0]) {
+      for (final off in const [-0.15, 0.15]) {
+        salt++;
+        final lane = center + off;
+        // La huella externa del carril de la orilla cae fuera del asfalto.
+        if (lane.abs() > 1.07) continue;
+        for (var m = -1;; m++) {
+          final zNear = _dashZMin + phase + m * _edgePeriod;
+          if (zNear > zMax) break;
+          final id = id0 + m;
+          final w1 = _hash01(id, salt);
+          final w2 = _hash01(id, salt + 40);
+          final zA = max(zNear, _dashZMin);
+          final zB = min(zNear + _edgePeriod * (0.55 + 0.40 * w1), zMax);
+          if (zB <= zA) continue;
+          final fade = _fadeOut((zA + zB) * 0.5, 5.0, zMax);
+          if (fade <= 0.01) continue;
+          _drawLaneSegment(
+            canvas,
+            p,
+            lane,
+            zNear: zA,
+            zFar: zB,
+            widthBase: 11.0,
+            color: ink,
+            alpha: (0.05 + 0.08 * w2) * fade,
+          );
+        }
+      }
+    }
+  }
 
   /// Manchones de la divisoria `lane` (±0.5): la fase avanza con el juego en
   /// coordenada de mundo y cada manchón se afila con la perspectiva.
